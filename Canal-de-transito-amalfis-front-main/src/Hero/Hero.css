@@ -1,0 +1,142 @@
+.hero {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 40;
+  overflow: clip;
+  background: linear-gradient(
+    180deg,
+    rgba(250, 247, 242, 0.9) 0%,
+    rgba(244, 240, 233, 0.9) 100%
+  );
+  border-bottom: 1px solid var(--line);
+}
+
+.hero__inner {
+  position: relative;
+  padding-block: 5px 0;
+}
+
+.hero__head {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 24px;
+}
+
+.hero__eyebrow-rule {
+  width: 56px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--orange);
+  margin-bottom: 20px;
+}
+
+.hero__title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  font-size: clamp(2.6rem, 6vw, 4.4rem);
+  color: var(--navy-700);
+}
+
+.hero__title .is-accent {
+  color: var(--orange);
+}
+
+.hero__subtitle {
+  margin-top: 18px;
+  max-width: 40ch;
+  font-size: clamp(1.05rem, 1.6vw, 1.28rem);
+  color: var(--navy-600);
+  font-weight: 500;
+}
+
+.hero__ethos {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.hero__ethos b {
+  color: var(--navy-600);
+  font-weight: 700;
+}
+
+.hero__ethos .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+@media (max-width: 992px) {
+  .hero__inner {
+    padding-block: 5px 0;
+  }
+  .hero__head {
+    grid-template-columns: 1fr;
+  }
+  .hero__ethos {
+    position: static;
+    transform: none;
+    justify-self: center;
+    text-align: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .hero {
+    position: static;
+  }
+
+  .hero__inner {
+    padding-block: 10px 12px;
+  }
+
+  .hero__head {
+    gap: 12px;
+  }
+
+  .hero__eyebrow-rule {
+    width: 42px;
+    height: 3px;
+    margin-bottom: 10px;
+  }
+
+  .hero__title {
+    font-size: clamp(1.8rem, 8vw, 2.2rem);
+    line-height: 1.08;
+  }
+
+  .hero__subtitle {
+    margin-top: 8px;
+    font-size: 1rem;
+  }
+
+  .hero__ethos {
+    flex-wrap: wrap;
+    white-space: normal;
+    gap: 8px;
+    padding-top: 0;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+  }
+
+  .hero__ethos .dot {
+    width: 4px;
+    height: 4px;
+  }
+}

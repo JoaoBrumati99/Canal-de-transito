@@ -1,0 +1,224 @@
+/* ============================================================
+   Amalfis — Canal de Trânsito
+   Design tokens + global base + page layout
+   ============================================================ */
+
+:root {
+  /* Brand — navy */
+  --navy-900: #0c2740;
+  --navy-800: #103554; /* footer */
+  --navy-700: #12324f; /* wordmark / primary headings */
+  --navy-600: #1c4a70;
+  --ink: #12324f; /* primary text */
+  --ink-soft: #3a5570; /* secondary text */
+  --muted: #64768a; /* helper / captions */
+
+  /* Brand — orange accent */
+  --orange: #f7582a;
+  --orange-600: #e34817;
+  --orange-100: #fde3d3; /* soft icon-circle tint */
+  --orange-050: #fef1ea;
+
+  /* Surfaces */
+  --cream: #f4f0e9; /* warm off-white page background (Amalfis) */
+  --cream-2: #faf7f2;
+  --surface: #ffffff;
+  --line: rgba(18, 50, 84, 0.1);
+  --line-strong: rgba(18, 50, 84, 0.16);
+
+  /* Feedback */
+  --ok: #1f9d55;
+  --ok-bg: #e8f7ee;
+  --err: #d23f2c;
+  --err-bg: #fdecea;
+
+  /* Shape + shadow */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(12, 39, 64, 0.06);
+  --shadow-md: 0 12px 30px -14px rgba(12, 39, 64, 0.28);
+  --shadow-lg: 0 28px 60px -24px rgba(12, 39, 64, 0.35);
+
+  --container: 1200px;
+  --header-h: 78px;
+
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background-color: var(--cream);
+  background-image:
+    linear-gradient(rgba(244, 240, 233, 0.9), rgba(244, 240, 233, 0.99)),
+    url("../images/cartaz_amalfis_transito.svg");
+  background-repeat: no-repeat, no-repeat;
+  background-position: center, center;
+  background-size: cover, cover;
+  background-attachment: fixed, fixed;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  line-height: 1.55;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(247, 88, 42, 0.55);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding-inline: 40px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Page shell ---------- */
+.page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.page__body {
+  flex: 1;
+}
+
+/* ---------- Main two-column grid ---------- */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
+  gap: 56px;
+  align-items: start;
+  padding-block: 56px 84px;
+}
+
+@media (min-width: 993px) and (max-width: 1439px) {
+  .container {
+    max-width: 1120px;
+    padding-inline: 32px;
+  }
+  .layout {
+    gap: 32px;
+    padding-block: 40px 64px;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --container: 1520px;
+  }
+  .container {
+    padding-inline: clamp(40px, 3.2vw, 56px);
+  }
+  .layout {
+    gap: clamp(56px, 4vw, 72px);
+    padding-block: 64px 88px;
+  }
+}
+
+@media (min-width: 1800px) {
+  :root {
+    --container: 1640px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .container {
+    padding-inline: 28px;
+  }
+  .layout {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding-block: 40px 64px;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --header-h: 64px;
+  }
+
+  .container {
+    padding-inline: 16px;
+  }
+
+  .layout {
+    gap: 24px;
+    padding-block: 28px 40px;
+  }
+
+  .layout > .form-card {
+    order: 1;
+  }
+
+  .layout > .info {
+    order: 0;
+  }
+
+  body {
+    background-size: cover, cover;
+    background-attachment: scroll, scroll;
+  }
+}
+
+/* ---------- Motion: single, gentle page-load reveal ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    animation: reveal 0.6s ease-out both;
+  }
+  .reveal-2 {
+    animation: reveal 0.6s ease-out 0.08s both;
+  }
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

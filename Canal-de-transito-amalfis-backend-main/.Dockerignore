@@ -1,0 +1,36 @@
+# Ignorar node_modules (no caso Node.js)
+node_modules
+
+# Ignorar builds locais (ex: pasta target no Java, ou dist no TS)
+target
+build
+dist
+
+# Ignorar arquivos de log
+*.log
+
+# Ignorar arquivos de ambiente locais
+.env
+.env.local
+.env.*.local
+
+# Ignorar IDEs e sistema operacional
+.vscode
+.idea
+.DS_Store
+
+# Ignorar arquivos git
+.git
+.gitignore
+
+# Ignorar arquivos de testes
+test
+tests
+*.test.js
+*.spec.js
+
+node_modules
+npm-debug.log
+Dockerfile
+.dockerignore
+.env

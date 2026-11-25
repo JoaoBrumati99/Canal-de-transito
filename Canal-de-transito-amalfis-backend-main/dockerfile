@@ -1,0 +1,14 @@
+FROM node:latest
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm i
+
+EXPOSE 3001
+
+COPY . .
+
+# Configura o PM2 para utilizar o arquivo .env
+CMD ["npm", "run", "dev"]
