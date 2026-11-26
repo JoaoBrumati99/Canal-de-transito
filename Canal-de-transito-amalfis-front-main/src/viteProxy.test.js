@@ -8,7 +8,7 @@ describe("Vite development API proxy", () => {
     const proxy = viteConfig.server.proxy;
 
     expect(proxy["/api"]).toMatchObject({
-      target: "http://localhost:3001",
+      target: process.env.API_PROXY_TARGET || "http://localhost:3001",
       changeOrigin: true,
     });
     expect(proxy["/api"].rewrite).toBeUndefined();

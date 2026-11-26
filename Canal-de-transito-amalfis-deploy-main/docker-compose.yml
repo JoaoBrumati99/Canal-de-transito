@@ -1,26 +1,23 @@
 services:
-  denuncia-amalfis-backend:
-    image: 015356265371.dkr.ecr.us-east-1.amazonaws.com/denuncia-amalfis-backend
-    container_name: denuncia-amalfis-backend
+  canal-de-transito-backend:
+    image: 015356265371.dkr.ecr.us-east-1.amazonaws.com/canal-de-transito-backend
+    container_name: canal-de-transito-backend
     expose:
       - "3001"
     env_file:
       - ./.back.env
     networks:
       - webproxy
-    environment:
-      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
-      GEOAPIFY_ENABLED: ${GEOAPIFY_ENABLED:-false}
-      GEOAPIFY_RATE_LIMIT_PER_MINUTE: ${GEOAPIFY_RATE_LIMIT_PER_MINUTE:-10}
-      GEOAPIFY_MAX_CONCURRENT: ${GEOAPIFY_MAX_CONCURRENT:-2}
 
-  denuncia-amalfis-front:
-    image: 015356265371.dkr.ecr.us-east-1.amazonaws.com/denuncia-amalfis-front
-    container_name: denuncia-amalfis-front
+  canal-de-transito-front:
+    image: 015356265371.dkr.ecr.us-east-1.amazonaws.com/canal-de-transito-front
+    container_name: canal-de-transito-front
     expose:
       - "3000"
     env_file:
       - ./.front.env
+    environment:
+      API_PROXY_TARGET: http://canal-de-transito-backend:3001
     networks:
       - webproxy
 

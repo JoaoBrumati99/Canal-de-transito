@@ -25,10 +25,10 @@ jobs:
 
       - name: Build, Tag and Push Docker image
         run: |
-          docker build -t denuncia-amalfis-front .
-          docker tag denuncia-amalfis-front \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/denuncia-amalfis-front
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/denuncia-amalfis-front
+          docker build -t canal-de-transito-front .
+          docker tag canal-de-transito-front \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/canal-de-transito-front
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/canal-de-transito-front
 
   deploy:
     name: Deploy to Production
@@ -44,8 +44,8 @@ jobs:
           script: |
             cd ${{ secrets.PATH_REPOSITORY }}
             aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-            docker compose down
-            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/denuncia-amalfis-front
+            docker compose down --remove-orphans
+            docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/canal-de-transito-front
             docker compose up -d
             # Remove imagens “penduradas” (dangling) 
             docker image prune -f
@@ -59,7 +59,7 @@ jobs:
 
       - name: Delete untagged images from ECR
         run: |
-          REPO_NAME=denuncia-amalfis-front
+          REPO_NAME=canal-de-transito-front
           ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
           REGION=us-east-1
 
