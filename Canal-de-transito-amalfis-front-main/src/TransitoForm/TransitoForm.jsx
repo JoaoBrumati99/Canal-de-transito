@@ -1,6 +1,10 @@
 import { useRef, useState } from 'react';
-import './DenunciaForm.css';
+import './TransitoForm.css';
 import maisIcon from '../../images/icons/mais.gif';
+import fiorinoQoy6g79Image from '../../images/fiorino_QOY6G79.svg';
+import fiorinoEwx9706Image from '../../images/fiorino_EWX9706.svg';
+import mobiPtz7g52Image from '../../images/mobi_prata_PTZ7G52.svg';
+import caminhaoEcu3g85Image from '../../images/caminhao_ECU3G85.svg';
 import {
   ClipIcon,
   UploadCloudIcon,
@@ -19,6 +23,12 @@ import {
 
 const MAX_CHARS = 5000;
 const ACCEPTED = ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov', '.webm'];
+const VEHICLES = [
+  { plate: 'QOY6G79', model: 'Fiorino', image: fiorinoQoy6g79Image },
+  { plate: 'EWX9706', model: 'Fiorino', image: fiorinoEwx9706Image },
+  { plate: 'PTZ7G52', model: 'Mobi', image: mobiPtz7g52Image },
+  { plate: 'ECU3G85', model: 'caminhão 6.160 DRC 4X2', image: caminhaoEcu3g85Image },
+];
 
 const OCORRENCIAS = [
   { id: 'velocidade', label: 'Excesso de velocidade', icon: 'speed' },
@@ -55,14 +65,18 @@ function validateFile(file) {
   return '';
 }
 
-const DenunciaForm = () => {
+const TransitoForm = () => {
   const [step, setStep] = useState(1);
   const [ocorrencia, setOcorrencia] = useState('velocidade');
   const [text, setText] = useState('');
   const [local, setLocal] = useState('');
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationMessage, setLocationMessage] = useState('');
+  const [locationError, setLocationError] = useState(false);
   const [data, setData] = useState('');
   const [horario, setHorario] = useState('');
   const [placa, setPlaca] = useState('');
+  const [selectedVehicle, setSelectedVehicle] = useState('');
   const [files, setFiles] = useState([]);
   const [fileError, setFileError] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -73,6 +87,36 @@ const DenunciaForm = () => {
   const fileInputRef = useRef(null);
 
   const charCount = text.length;
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      setLocationMessage('Este navegador não disponibiliza a localização.');
+      setLocationError(true);
+      return;
+    }
+
+    setLocationLoading(true);
+    setLocationMessage('Obtendo localização...');
+    setLocationError(false);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setLocal(`Localização atual: latitude ${coords.latitude.toFixed(6)}, longitude ${coords.longitude.toFixed(6)}`);
+        setLocationLoading(false);
+        setLocationMessage('Localização preenchida com coordenadas. Não há conversão automática para nome da rua.');
+      },
+      (error) => {
+        const messages = {
+          1: 'Permissão de localização negada. Autorize o acesso no navegador ou informe o endereço manualmente.',
+          2: 'Não foi possível determinar sua localização. Informe o endereço manualmente.',
+          3: 'A busca pela localização expirou. Tente novamente ou informe o endereço manualmente.',
+        };
+        setLocationLoading(false);
+        setLocationError(true);
+        setLocationMessage(messages[error.code] || 'Não foi possível obter sua localização. Informe o endereço manualmente.');
+      },
+      { timeout: 10000 }
+    );
+  }
 
   function handleFiles(selectedFiles) {
     const incomingFiles = Array.from(selectedFiles || []);
@@ -126,9 +170,13 @@ const DenunciaForm = () => {
     setOcorrencia('velocidade');
     setText('');
     setLocal('');
+    setLocationLoading(false);
+    setLocationMessage('');
+    setLocationError(false);
     setData('');
     setHorario('');
     setPlaca('');
+    setSelectedVehicle('');
     setFiles([]);
     setSubmitted(false);
     setProtocol('');
@@ -146,7 +194,7 @@ const DenunciaForm = () => {
     setProtocol(`CT-${datePart}-${referencePart}`);
     setRegisteredAt(submittedAt);
     setSubmitted(true);
-    setStep(3);
+    setStep(4);
   }
 
   return (
@@ -154,11 +202,11 @@ const DenunciaForm = () => {
       <div className="form-card reveal-2">
         {!submitted && (
           <div className="wizard-steps" aria-label="Etapas do registro">
-          {[1, 2].map((item) => (
+          {[1, 2, 3].map((item) => (
             <div className={`wizard-step ${step === item ? 'is-active' : ''} ${step > item ? 'is-complete' : ''}`} key={item}>
               <span className="wizard-step__number">{step > item ? '✓' : item}</span>
-              <span className="wizard-step__label">{item === 1 ? 'Ocorrência' : 'Detalhes'}</span>
-              {item < 2 && <span className="wizard-step__line" />}
+              <span className="wizard-step__label">{['Ocorrência', 'Identificação', 'Detalhes'][item - 1]}</span>
+              {item < 3 && <span className="wizard-step__line" />}
             </div>
           ))}
           </div>
@@ -196,18 +244,71 @@ const DenunciaForm = () => {
 
         {step === 2 && (
           <section className="wizard-panel">
+            <h2 className="wizard-title">Identificação do veículo</h2>
+            <p className="wizard-hint">Selecione o veículo relacionado à ocorrência.</p>
+            <div className="vehicle-grid">
+              {VEHICLES.map((vehicle) => (
+                <article
+                  className={`vehicle-card ${selectedVehicle === vehicle.plate ? 'is-selected' : ''}`}
+                  key={vehicle.plate}
+                >
+                  <div className="vehicle-card__visual">
+                    <img className="vehicle-card__image" src={vehicle.image} alt={`${vehicle.model} ${vehicle.plate}`} />
+                  </div>
+                  <div className="vehicle-card__details">
+                    <span className="vehicle-card__model">{vehicle.model}</span>
+                    <span className="vehicle-card__plate">{vehicle.plate}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="vehicle-card__select"
+                    onClick={() => setSelectedVehicle(vehicle.plate)}
+                    aria-pressed={selectedVehicle === vehicle.plate}
+                    aria-label={`Selecionar ${vehicle.model}, placa ${vehicle.plate}`}
+                  >
+                    Selecionar
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {step === 3 && (
+          <section className="wizard-panel">
             <h2 className="wizard-title">Detalhes da ocorrência</h2>
             <p className="wizard-hint">Informe onde e quando aconteceu e compartilhe os detalhes que podem ajudar a entender a situação.</p>
             <div className="detail-grid">
               <div className="field detail-grid__wide">
-                <label htmlFor="local" className="field__label">Onde aconteceu?</label>
+                <label htmlFor="local" className="field__label">Endereço</label>
+                <p id="local-hint" className="location-hint">
+                  A localização será registrada como coordenadas, sem conversão automática para nome da rua.
+                </p>
                 <input
                   id="local"
                   className="field__input"
                   placeholder="Rua, número, bairro ou ponto de referência"
                   value={local}
-                  onChange={(e) => setLocal(e.target.value)}
+                  aria-describedby="local-hint"
+                  onChange={(e) => {
+                    setLocal(e.target.value);
+                    setLocationMessage('');
+                    setLocationError(false);
+                  }}
                 />
+                <button
+                  type="button"
+                  className="location-button"
+                  onClick={useCurrentLocation}
+                  disabled={locationLoading}
+                >
+                  {locationLoading ? 'Obtendo localização...' : 'Usar minha localização'}
+                </button>
+                {locationMessage && (
+                  <p className={`location-message ${locationError ? 'location-message--error' : ''}`} role={locationError ? 'alert' : 'status'}>
+                    {locationMessage}
+                  </p>
+                )}
               </div>
               <div className="field">
                 <label htmlFor="data" className="field__label">Data aproximada</label>
@@ -311,7 +412,7 @@ const DenunciaForm = () => {
           </section>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           submitted ? (
             <section className="confirmation" role="status">
               <span className="confirmation__icon" aria-hidden="true"><CheckCircleIcon width={44} height={44} /></span>
@@ -350,10 +451,13 @@ const DenunciaForm = () => {
                 Voltar
               </button>
             )}
-            {step === 1 ? (
-              <button type="button" className="submit-btn" onClick={() => {
-                setStep((current) => current + 1);
-              }}>
+            {step < 3 ? (
+              <button
+                type="button"
+                className="submit-btn"
+                onClick={() => setStep((current) => current + 1)}
+                disabled={step === 2 && !selectedVehicle}
+              >
                 Próximo
                 <ArrowRightIcon width={20} height={20} />
               </button>
@@ -370,4 +474,4 @@ const DenunciaForm = () => {
   );
 };
 
-export default DenunciaForm;
+export default TransitoForm;

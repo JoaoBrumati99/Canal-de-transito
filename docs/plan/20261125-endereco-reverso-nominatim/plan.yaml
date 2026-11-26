@@ -1,0 +1,238 @@
+plan_id: 20261125-endereco-reverso-nominatim
+status: pending
+tldr: |
+  Wave 1 reaberta para confirmar termos Google aplicaveis; implementacao sera fail-closed por padrao, com ativacao real separada.
+created_at: 2026-11-25T16:30:16-03:00
+created_by: planner
+revision: 7
+replan_count: 7
+planner_revision_used: false
+
+decisions:
+  - "Preservar o baseline literalmente como historico; aplicar a escolha atual de Google sem alterar os resultados funcionais imutaveis."
+  - "Substituir o preflight Nominatim NO-GO por um preflight Google condicionado aos termos aplicaveis, privacidade, quota e custos."
+  - "Separar preflight, endpoint backend e integracao frontend em waves dependentes para impedir envio de coordenadas antes das verificacoes."
+  - "Manter GOOGLE_MAPS_API_KEY exclusivamente no ambiente backend; nenhum valor de chave foi fornecido ou sera inventado."
+  - "Registrar decisao explicita do usuario: public_limited, sem autenticacao, condicionada a limites IP confiaveis e controles Google de quota/custos."
+  - "Registrar limite rigido aprovado pelo usuario: no maximo 15 consultas Google Geocoding por dia; nao inventar outros valores de quota."
+  - "Permitir implementacao e testes sem trafego real; manter o endpoint fechado ate quota, chave, origin e TRUST_PROXY estarem configurados e confirmados."
+  - "Separar implementacao/testes do gate operacional de ativacao real."
+  - "Definir GOOGLE_GEOCODING_ENABLED como false por padrao; nenhuma chamada upstream sem habilitacao explicita e gate operacional concluido."
+  - "Nao inferir termos EEA/non-EEA pela localizacao presumida do usuario; verificar a conta de faturamento aplicavel."
+  - "CORS nao e controle contra abuso nem custos."
+  - "Proibir logs de coordenadas, enderecos e payloads que revelem localizacao precisa em frontend e backend, inclusive em erros."
+assumptions:
+  - "O backend existente usa Node.js/Express e o frontend existente usa React/Vite."
+  - "GOOGLE_MAPS_API_KEY sera provisionada fora do chat e do codigo antes de chamadas reais; testes sem chave usarao respostas simuladas."
+  - "Neste fluxo, o endereco retornado sera mostrado no formulario, nao sobre um mapa."
+
+baseline:
+  objective: "Atualizar o botão de localização atual para preencher o endereço da rua por geocodificação reversa usando OpenStreetMap Nominatim, escolhido pelo usuário. O browser já solicita geolocalização e atualmente preenche coordenadas."
+  acceptance_criteria:
+    - "Após consentimento explícito e permissão de geolocalização, converter latitude/longitude em endereço legível da rua com Nominatim e inserir no campo de endereço."
+    - "Informar claramente antes da ação que a localização será compartilhada com OpenStreetMap/Nominatim."
+    - "Tratar endereço não encontrado, falha de rede, permissão negada e indisponibilidade sem bloquear edição manual nem descartar silenciosamente as coordenadas úteis."
+    - "Não quebrar o comportamento/formulário existente; atribuir crédito OpenStreetMap quando os dados retornados forem usados."
+    - "Validar lint/build e casos de comportamento relevantes."
+  captured_at: "2026-11-25T16:30:16-03:00"
+
+replan:
+  reason: "Reabrir Wave 1 para evidencia oficial dos termos e uso de coordenadas/endereco; definir runtime default-off e manter ativacao real separada."
+  changed_tasks:
+    - verify-google-geocoding-policy
+    - add-backend-reverse-geocoding
+    - integrate-frontend-reverse-geocoding
+    - activate-google-geocoding
+    - integrate-frontend-reverse-geocoding
+  added_tasks:
+    - activate-google-geocoding
+  removed_tasks:
+    - decide-geocoding-endpoint-boundary
+  preserved_acceptance_criteria:
+    - "A localizacao atual preenche o nome/endereco da rua."
+    - "Solicitar explicitamente ao usuario antes de compartilhar coordenadas."
+    - "Preservar fallback de coordenadas e permitir edicao manual diante de falhas."
+  new_risks:
+    - "Nominatim publico NO-GO: frontend nao pode garantir limite agregado de uma solicitacao por segundo; a politica sobre coordenadas precisas nao ficou clara."
+    - "Google Geocoding API exige billing e chave; chamadas geram consumo sujeito a quota, preco e limites operacionais do projeto."
+    - "A permissibilidade de enviar coordenadas precisas e persistir o endereco retornado depende dos termos, politica de privacidade e conta Google aplicaveis."
+    - "GOOGLE_MAPS_API_KEY ainda nao esta configurada; chamadas reais e validacao de ponta a ponta dependem de provisionamento externo seguro."
+    - "O backend existente usa cors() sem origem explicitamente configurada; a autenticacao aplicavel ao novo endpoint nao foi identificada no roteamento inspecionado."
+    - "Logs de coordenadas, enderecos ou payloads de geocodificacao podem revelar localizacao precisa em sucesso e em caminhos de erro."
+    - "A stack Compose conecta o backend a uma rede externa webproxy sem configuracao de proxy versionada neste repositorio; origem IP confiavel e suporte a rate limiting distribuido ainda nao foram verificados."
+    - "A documentacao Google consultada informa que budget alerts nao limitam gasto automaticamente e que spend caps se aplicam apenas a servicos elegiveis; Geocoding API nao aparece na lista atual de elegibilidade."
+    - "O usuario aprovou no maximo 15 consultas/dia; o limite efetivo no projeto Cloud e a disponibilidade de IP confiavel no proxy ainda nao foram verificados."
+  progress_signal: "Infra preflight concluido em infra-preflight.md, mas reviewer reabriu Wave 1 porque os termos aplicaveis e permissibilidade de coordenadas precisas, exibicao/submissao do endereco, atribuicao e retencao ainda precisam de evidencia oficial especifica. Nao inferir Brasil/EEA. Implementacao pode prosseguir somente com GOOGLE_GEOCODING_ENABLED=false por padrao e sem trafego real; quota 15/proxy/IP continuam no gate operacional."
+  revised_tasks:
+    - verify-google-geocoding-policy
+    - add-backend-reverse-geocoding
+    - integrate-frontend-reverse-geocoding
+    - activate-google-geocoding
+  invalidated_tasks:
+    - decide-geocoding-endpoint-boundary
+  invalidated_assumptions: []
+
+tasks:
+  - id: verify-google-geocoding-policy
+    title: "Validando preflight Google e deployment publico"
+    description: "Um go/no-go verifica politica Google, limites disponiveis no projeto e capacidade de aplicar limite IP confiavel no deployment antes da implementacao."
+    wave: 1
+    depends_on: []
+    agent: gem-researcher
+    exploration_mode: question
+    status: pending
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that current official Google Geocoding API policies, security guidance, terms, and privacy requirements are recorded with source URLs and check date before implementation."
+      - "Verify the applicable Google Maps Platform terms by checking the actual Google Cloud billing-account address/region; do not infer Brazil, EEA, or non-EEA applicability from the user's presumed location."
+      - "Verify from official terms and privacy sources whether precise user coordinates may be transmitted for this reverse-geocoding use after explicit disclosure and consent, and record any conditions or unresolved legal/privacy decision."
+      - "Verify from official policies whether the returned address may be displayed in this form and submitted/stored with a report, including applicable attribution requirements and retention/caching limits for coordinates and address content."
+      - "Verify the official policy findings have source URLs, date, exact applicable region/terms, and an explicit GO, NO-GO, or pending-decision result; if account region or permissibility cannot be established, mark this task blocked and request the missing evidence or decision."
+      - "Verify that the user decision is recorded exactly as public_limited: a public endpoint without authentication, limited by client IP and independent Google project controls."
+      - "Verify that the completed infrastructure report records one backend service with no declared replica count, an external webproxy with no versioned configuration, and unknown real-IP forwarding; defer trusted-IP confirmation to activation."
+      - "Verify that the report records the current generic CORS configuration and requires an explicit deployed frontend origin allowlist before activation; CORS is not authentication, abuse prevention, quota, or cost control."
+      - "Verify from official documentation that daily Geocoding quotas can be adjusted, while recording that the target project's quota, billing budget, alert recipients, and any spend cap are not verifiable from repository evidence."
+      - "Verify that the preflight distinguishes hard request quotas from budget alerts and records that alert configuration must be checked independently during activation; do not represent alerts-only budgets as hard caps."
+      - "Verify that the completed infrastructure preflight documents daily Google quotas as adjustable and records that the target project's exact 15/day setting is not verifiable from repository evidence and remains an activation check."
+      - "Verify and record the cost estimate for 15 requests/day: approximately 450-465 monthly Geocoding events, estimated at $0 if the 10,000-event free cap applies and remains available across the billing account; if that cap is already consumed, about $2.25-$2.33 for 450-465 events at the listed $5/1,000 first paid tier, subject to applicable region, SKU, tier, discounts, and account-wide usage."
+      - "Verify that current Google documentation is checked for spend-cap eligibility; record the user-approved 15/day hard request quota as the intended cost bound and keep budget alerts as a separate notification control, without describing them as a spend cap."
+      - "Verify that the completed preflight records external proxy/IP trust, project quota, key restrictions, billing, and alert settings as unverified runtime facts and assigns them to the separate activation gate."
+      - "Verify that implementation and automated tests may proceed only with a fail-closed endpoint and no real Google API calls until the activation gate passes."
+    handoff:
+      constraints:
+        - "Refresh official sources before implementation: https://developers.google.com/maps/documentation/geocoding/policies ; https://developers.google.com/maps/documentation/geocoding/usage-and-billing ; https://developers.google.com/maps/api-security-best-practices ; https://developers.google.com/maps/documentation/geocoding/requests-reverse-geocoding ."
+        - "Check the applicable terms and privacy sources for the actual billing account: https://cloud.google.com/maps-platform/terms/maps-service-terms ; https://cloud.google.com/terms/maps-platform/eea ; https://policies.google.com/privacy ."
+        - "For official Geocoding-specific content, attribution, and retention conditions, consult https://developers.google.com/maps/documentation/geocoding/policies and the linked service-specific terms; record the exact applicable terms rather than inferring a region."
+        - "Verify quota controls at https://developers.google.com/maps/documentation/geocoding/usage-and-billing and https://docs.cloud.google.com/docs/quotas/overview ."
+        - "Verify global SKU pricing and billing-account aggregation at https://developers.google.com/maps/billing-and-pricing/pricing ."
+        - "Verify budget and spend-cap behavior and current eligible services at https://docs.cloud.google.com/billing/docs/how-to/budgets and https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps ."
+        - "Planning review on 2026-11-25 found that Geocoding API requires billing and an API key, permits use without a Google Map subject to restrictions, and requires Google Maps attribution. The global table lists 10,000 free monthly Geocoding Essentials events then $5/1,000 in the first paid tier; billing-account aggregation applies. Google budget docs distinguish alert-only budgets from spend caps; the current eligible-service list does not include Geocoding API."
+        - "The deployment compose file joins an external webproxy network; its real-IP forwarding and rate-limit capabilities are not configured in the inspected repository."
+        - "Do not authorize real coordinate transmission unless privacy/terms, trusted IP derivation, the 15/day hard project request quota, billing/alerts, and key restrictions are verified in the target environment."
+      relevant_context:
+        - "docs/plan/20261125-endereco-reverso-nominatim/infra-preflight.md:1"
+      high_risk_signals:
+        - "Precise user coordinates will be transmitted to a paid external service; consent, applicable terms, data use, attribution, quotas, and cost controls require preflight."
+        - "The applicable billing account region and project quotas are not yet confirmed."
+        - "The public_limited endpoint depends on trustworthy proxy-derived client IP and project-wide cost controls; the external proxy configuration is not available in the repository."
+        - "Google budget alerts do not cap Geocoding API spend; the user-approved 15/day request quota is the intended hard cost bound, but its project configuration remains unverified."
+      critic_signals:
+        - "Reviewer finding 1: Wave 1 cannot be complete until official evidence confirms applicable terms and permission for precise coordinates, address display/submission, attribution, and retention; do not infer Brazil/EEA."
+
+  - id: add-backend-reverse-geocoding
+    title: "Adicionando geocodificacao reversa no backend"
+    description: "O backend valida coordenadas, consulta o Google Geocoding API de forma protegida e aplica limites operacionais e respostas de erro seguras."
+    wave: 2
+    depends_on:
+      - verify-google-geocoding-policy
+    agent: gem-implementer
+    status: pending
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that the backend exposes a reverse-geocoding endpoint that accepts only valid finite latitude/longitude values within geographic ranges and does not accept a key from the client."
+      - "Verify that the upstream Google request uses GOOGLE_MAPS_API_KEY only from backend environment configuration, never returns or logs the key, and makes no upstream request when the variable is missing."
+      - "Verify that GOOGLE_GEOCODING_ENABLED defaults to false when unset and the endpoint makes no upstream request unless it is explicitly set to true after the operational activation gate is complete."
+      - "Verify that backend request-rate and concurrency controls are finite, configurable, and enforced in alignment with the approved project quota and operational cost limit."
+      - "Verify that the endpoint implements the approved public_limited access model with a robust per-IP rate limiter based only on trusted proxy-derived client IPs and appropriate across all deployed backend instances."
+      - "Verify that the endpoint fails closed without making upstream calls unless GOOGLE_GEOCODING_ENABLED is explicitly true and GOOGLE_MAPS_API_KEY, the approved frontend origin allowlist, safely verified TRUST_PROXY, budget alerts, and the 15/day Google quota have all been operationally confirmed."
+      - "Verify that TRUST_PROXY is never enabled as an unrestricted trust of arbitrary forwarding headers and that inability to derive a trusted client IP leaves the public endpoint closed."
+      - "Verify that CORS uses the explicitly approved frontend origin(s) and is documented solely as a browser cross-origin policy, never as abuse, authentication, quota, or cost protection."
+      - "Verify that the implementation consumes only a preflight-approved operational readiness state and does not infer that the external Google quota or budget alerts are configured merely because code or tests pass."
+      - "Verify that successful Google responses return the street/address result needed by the form and that no-result, invalid-key/configuration, quota/rate-limit, timeout, and network failures map to safe, distinguishable application errors."
+      - "Verify that HTTP 429 or quota errors cause no aggressive automatic retry, preserve a clear retry-later signal, and do not bypass backend limits."
+      - "Verify that IP-based limits reject spoofed forwarded-IP headers and remain effective under the verified proxy and deployment topology."
+      - "Verify that automated backend tests cover coordinate validation, missing key, successful/no-result responses, upstream failures, and request limiting without requiring a real secret."
+      - "Verify that automated tests prove unset and false GOOGLE_GEOCODING_ENABLED block upstream calls, and that true-path behavior uses mocked Google responses only."
+      - "Verify that all automated backend tests never send real requests to Google or require a real API key."
+      - "Verify that backend application logs never contain coordinates, returned addresses, geocoding request/response payloads, or error details revealing precise location, across success and every error path."
+      - "Verify with automated log-capture tests that validation, missing-key, rate-limit, timeout, upstream-error, and success paths emit only redacted location-safe diagnostics."
+      - "Verify that runtime/configuration documentation names GOOGLE_MAPS_API_KEY without inventing, exposing, or committing a key value, and states that live service checks require secure external provisioning."
+    handoff:
+      constraints:
+        - "The infrastructure preflight report is complete, but the official Google terms/privacy preflight has been reopened; do not implement until the revised Wave 1 returns GO. Any implementation after GO must remain fail-closed and does not authorize real Google traffic."
+        - "Keep GOOGLE_MAPS_API_KEY exclusively in backend environment configuration; never put its value in chat, frontend code, source control, responses, or logs."
+        - "Default GOOGLE_GEOCODING_ENABLED to false; set it true only through the separate operational activation task after every gate is verified."
+        - "Use the preflight-approved per-IP, project quota, and cost limits; do not invent account-specific limits."
+        - "Access model is public_limited, as explicitly decided by the user; apply robust IP limits and Google quota controls independently."
+        - "Keep the endpoint unavailable until GOOGLE_MAPS_API_KEY, the verified 15/day Cloud quota, allowed origin(s), and safe TRUST_PROXY configuration are all confirmed in the target deployment."
+        - "Retain only provider content allowed by the applicable Google terms and approved user-facing purpose."
+        - "CORS must use the explicitly approved frontend origins, but cannot substitute for authentication or backend abuse/cost limits."
+        - "Never log precise location, location-derived address, upstream payload, or unsanitized errors that could reveal location."
+      relevant_context:
+        - "app/routes/index.js"
+        - "server.js"
+      high_risk_signals:
+        - "A publicly reachable backend route can incur unapproved Google Maps Platform charges if limits and key restrictions are ineffective."
+        - "The API key is a server-side credential and must not reach browser-visible code or responses."
+      critic_signals:
+        - "Reviewer finding 2: require an enforceable runtime default-off control, with tests proving GOOGLE_GEOCODING_ENABLED=false prevents upstream calls until the operational gate is complete."
+
+  - id: integrate-frontend-reverse-geocoding
+    title: "Conectando o formulario ao endereco Google"
+    description: "A interface informa previamente o compartilhamento com Google Maps, solicita consentimento e apresenta endereco, fallback e erros retornados pelo backend."
+    wave: 3
+    depends_on:
+      - add-backend-reverse-geocoding
+    agent: gem-implementer
+    status: pending
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that before requesting browser geolocation or sending coordinates, the user is explicitly told that precise location will be shared with Google Maps/Google Geocoding API and can cancel without a location or network request."
+      - "Verify that after affirmative consent and browser permission, a valid returned street address fills the existing address field and Google Maps attribution is clearly visible as required by the approved policy."
+      - "Verify that no-result, backend-unavailable, network, quota/rate-limit, and upstream errors provide clear feedback while preserving any existing manual address and an editable coordinate fallback."
+      - "Verify that denied permission, unavailable geolocation, and the 10-second geolocation timeout preserve manual entry and communicate recovery guidance."
+      - "Verify that an endpoint-disabled response when GOOGLE_GEOCODING_ENABLED is false or unset gives clear feedback, preserves manual input and coordinate fallback, and does not trigger a retry."
+      - "Verify that repeated activation during an in-flight lookup produces at most one backend request, and no automatic retry is initiated after errors including HTTP 429."
+      - "Verify that frontend console, telemetry, and error reporting never log coordinates, the returned address, request/response payloads, or other data revealing precise location, including on success and failure paths."
+      - "Verify with log/telemetry capture that browser permission denial, backend errors, timeout, and success paths contain no precise location data."
+      - "Verify that the existing form submission and unrelated fields continue to work and that frontend lint/build plus relevant consent, success, failure, and manual-entry cases pass."
+      - "Verify that frontend tests use a mocked backend and never send real coordinates to Google or require a real API key."
+    handoff:
+      constraints:
+        - "Only call the backend after explicit, informed user consent and successful acquisition of coordinates."
+        - "Never call Google directly from the browser and never expose GOOGLE_MAPS_API_KEY to frontend code."
+        - "Preserve existing address input on cancellation and failures; keep manual edits available."
+        - "Use only Google Maps attribution and display/storage behavior approved by the policy preflight."
+      relevant_context:
+        - "src/TransitoForm/TransitoForm.jsx:useCurrentLocation"
+        - "src/TransitoForm/TransitoForm.jsx:local"
+        - "src/TransitoForm/TransitoForm.jsx:location-button"
+      high_risk_signals:
+        - "The browser must disclose precise location transmission to Google before consent and must route coordinates only to the backend."
+      critic_signals: []
+
+  - id: activate-google-geocoding
+    title: "Liberando ativacao operacional Google"
+    description: "O trafego real so e liberado apos confirmacao operacional de chave, quota, origem permitida e proxy/IP confiavel."
+    wave: 4
+    depends_on:
+      - verify-google-geocoding-policy
+      - add-backend-reverse-geocoding
+      - integrate-frontend-reverse-geocoding
+    agent: gem-devops
+    status: pending
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that GOOGLE_GEOCODING_ENABLED is false by default and remains false until the operational gate is completed."
+      - "Verify that activation remains closed unless GOOGLE_MAPS_API_KEY is securely configured only in the backend environment and appropriately restricted to Geocoding API and the deployed backend."
+      - "Verify in the target Google Cloud project that the Geocoding daily quota is configured to no more than the user-approved 15 requests/day and applies to all callers of that project."
+      - "Verify that billing budget thresholds and alert recipients are configured and monitored independently from the hard daily request quota; do not treat alerts as a spend cap."
+      - "Verify the deployed frontend origin allowlist is explicit and matches the actual site origins."
+      - "Verify with the deployment/proxy operator which proxy hops and client-IP headers are trusted, configure TRUST_PROXY narrowly for that topology, and confirm the per-IP limiter uses the real client IP across the deployed instances."
+      - "Verify that the endpoint remains closed and emits no upstream Google traffic if any key, quota, budget-alert, origin, TRUST_PROXY, or per-IP limiting prerequisite is missing or unconfirmed."
+      - "Verify that activation is marked blocked and no real traffic is enabled if the project quota cannot be confirmed at 15/day or trustworthy IP limiting cannot be established."
+      - "Verify that automated test suites remain fully mocked and do not require a live API key or make real Google requests."
+      - "Verify that GOOGLE_GEOCODING_ENABLED is set to true only after the recorded quota, billing/alerts, frontend origins, TRUST_PROXY, and per-IP limiter checks pass."
+    handoff:
+      constraints:
+        - "This is an operational activation gate, separate from implementation and automated tests."
+        - "Do not request or place GOOGLE_MAPS_API_KEY in chat, plan, source control, frontend, responses, or logs."
+        - "Do not enable real traffic until every acceptance criterion is verified in the target deployment."
+        - "The daily quota is 15 requests/day, as explicitly approved; do not add unapproved quota values."
+      relevant_context:
+        - "docs/plan/20261125-endereco-reverso-nominatim/infra-preflight.md:1"
+        - "Canal-de-transito-amalfis-deploy-main/docker-compose.yml:1"
+        - "Canal-de-transito-amalfis-backend-main/app/routes/index.js:8"
+      high_risk_signals:
+        - "Live activation depends on external Google Cloud project settings and an external proxy configuration that are not verified in the repository."
+      critic_signals: []
