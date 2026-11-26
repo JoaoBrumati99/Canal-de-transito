@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import './TransitoForm.css';
 import maisIcon from '../../images/icons/mais.gif';
@@ -93,6 +93,7 @@ const TransitoForm = () => {
   const [dragging, setDragging] = useState(false);
 
   const fileInputRef = useRef(null);
+  const formCardRef = useRef(null);
   const privacyTermDialogRef = useRef(null);
   const privacyTermCloseRef = useRef(null);
   const privacyTermTriggerRef = useRef(null);
@@ -102,6 +103,7 @@ const TransitoForm = () => {
   const locationAbortController = useRef(null);
   const submitInFlight = useRef(false);
   const componentMounted = useRef(false);
+  const scrollAfterStepChange = useRef(false);
 
   const charCount = text.length;
 
@@ -115,6 +117,14 @@ const TransitoForm = () => {
       locationAbortController.current = null;
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (!scrollAfterStepChange.current) return;
+    scrollAfterStepChange.current = false;
+    if (typeof formCardRef.current?.scrollIntoView === 'function') {
+      formCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [step]);
 
   useEffect(() => {
     if (!privacyTermOpen) return undefined;
@@ -288,6 +298,11 @@ const TransitoForm = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
+  function handleNextStep() {
+    scrollAfterStepChange.current = true;
+    setStep((current) => current + 1);
+  }
+
   async function handleFinalize() {
     if (fileError || !privacyConsent || submitInFlight.current) return;
 
@@ -347,7 +362,7 @@ const TransitoForm = () => {
 
   return (
     <>
-      <div className="form-card reveal-2">
+      <div className="form-card reveal-2" ref={formCardRef}>
         {!submitted && (
           <div className="wizard-steps" aria-label="Etapas do registro">
           {[1, 2, 3].map((item) => (
@@ -736,7 +751,7 @@ const TransitoForm = () => {
               <button
                 type="button"
                 className="submit-btn"
-                onClick={() => setStep((current) => current + 1)}
+                onClick={handleNextStep}
                 disabled={step === 2 && !selectedVehicle}
               >
                 Próximo

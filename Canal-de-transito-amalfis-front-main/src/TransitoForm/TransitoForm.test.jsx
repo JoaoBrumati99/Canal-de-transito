@@ -39,6 +39,34 @@ function openAddressStep() {
   advanceToAddressStep();
 }
 
+it('scrolls to the top of the form when advancing each step', () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+  const renderedStepsAtScroll = [];
+  const scrollIntoView = vi.fn(() => {
+    renderedStepsAtScroll.push(screen.getByRole('heading', { level: 2 }).textContent);
+  });
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: scrollIntoView,
+  });
+
+  try {
+    render(<TransitoForm />);
+    fireEvent.click(screen.getByRole('button', { name: /Próximo/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Selecionar/ })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Próximo/ }));
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    expect(renderedStepsAtScroll).toEqual(['Identificação do veículo', 'Detalhes da ocorrência']);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalDescriptor);
+    } else {
+      delete HTMLElement.prototype.scrollIntoView;
+    }
+  }
+});
+
 function advanceToAddressStep() {
   fireEvent.click(screen.getByRole('button', { name: /Próximo/ }));
   fireEvent.click(screen.getAllByRole('button', { name: /Selecionar/ })[0]);
