@@ -8,6 +8,11 @@ services:
       - ./.back.env
     networks:
       - webproxy
+    environment:
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
+      GEOAPIFY_ENABLED: ${GEOAPIFY_ENABLED:-false}
+      GEOAPIFY_RATE_LIMIT_PER_MINUTE: ${GEOAPIFY_RATE_LIMIT_PER_MINUTE:-10}
+      GEOAPIFY_MAX_CONCURRENT: ${GEOAPIFY_MAX_CONCURRENT:-2}
 
   denuncia-amalfis-front:
     image: 015356265371.dkr.ecr.us-east-1.amazonaws.com/denuncia-amalfis-front

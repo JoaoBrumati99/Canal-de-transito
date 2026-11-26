@@ -1,238 +1,396 @@
 plan_id: 20261125-endereco-reverso-nominatim
-status: pending
+status: in_progress
 tldr: |
-  Wave 1 reaberta para confirmar termos Google aplicaveis; implementacao sera fail-closed por padrao, com ativacao real separada.
-created_at: 2026-11-25T16:30:16-03:00
+  Replace GeocodeBR in the active reverse-geocoding flow with a consent-gated
+  backend integration to public Nominatim, while preserving manual address
+  entry and completed form changes. Keep every real upstream request disabled
+  in all environments until privacy eligibility and a global rate limit are
+  verified.
+current_objective: "Use public OpenStreetMap Nominatim through the application backend only if a deployment feasibility preflight and independent review identify enforceable all-environment privacy and rate-limit controls; otherwise remain no-go."
+current_acceptance_criteria:
+  - "Verify that explicit consent and a disclosure identifying Nominatim/OpenStreetMap as the recipient are shown before geolocation; cancellation requests no location and transmits no coordinates."
+  - "Verify that a Nominatim result fills the available street/address, neighborhood, city, and postal-code fields without inventing missing values, and remains editable."
+  - "Verify that street maps only from address.road; neighborhood maps to the first nonempty suburb/neighbourhood/city_district; city maps to the first nonempty city/town/village/municipality; postcode maps from address.postcode; and missing fields are omitted."
+  - "Verify that reverse-geocoding requests go through the application backend, identify the application with a policy-compliant User-Agent or Referer, and provide OpenStreetMap attribution."
+  - "Verify that aggregate outbound traffic never exceeds one Nominatim request per second across the deployed application, with a reasonable cache and no aggressive retries."
+  - "Verify that coordinates and addresses are absent from application logs; on lookup failure, acquired coordinates remain locally available and a visible explicit action can insert them into the address without silently replacing manual text or making another request."
+  - "Verify that every real upstream request is hard-disabled by default in every environment and can be enabled only through the enforceable mechanism confirmed by preflight and reviewer, after an explicit approval artifact from an authorized privacy owner and a verified deployment-wide limiter."
+  - "Verify that absent or unresolved privacy approval, missing control paths, or unavailable limiter blocks all upstream calls; user consent is not privacy eligibility."
+  - "Verify that mock-only code/tests proceed only after reviewer approval of safe implementation controls, and that no live Nominatim request is made."
+  - "Verify that form feedback, vehicle selection, completed plate removal, and all other form behavior remain intact."
+created_at: "2026-11-25T16:30:16-03:00"
 created_by: planner
-revision: 7
-replan_count: 7
+revision: 22
+replan_count: 22
 planner_revision_used: false
 
 decisions:
-  - "Preservar o baseline literalmente como historico; aplicar a escolha atual de Google sem alterar os resultados funcionais imutaveis."
-  - "Substituir o preflight Nominatim NO-GO por um preflight Google condicionado aos termos aplicaveis, privacidade, quota e custos."
-  - "Separar preflight, endpoint backend e integracao frontend em waves dependentes para impedir envio de coordenadas antes das verificacoes."
-  - "Manter GOOGLE_MAPS_API_KEY exclusivamente no ambiente backend; nenhum valor de chave foi fornecido ou sera inventado."
-  - "Registrar decisao explicita do usuario: public_limited, sem autenticacao, condicionada a limites IP confiaveis e controles Google de quota/custos."
-  - "Registrar limite rigido aprovado pelo usuario: no maximo 15 consultas Google Geocoding por dia; nao inventar outros valores de quota."
-  - "Permitir implementacao e testes sem trafego real; manter o endpoint fechado ate quota, chave, origin e TRUST_PROXY estarem configurados e confirmados."
-  - "Separar implementacao/testes do gate operacional de ativacao real."
-  - "Definir GOOGLE_GEOCODING_ENABLED como false por padrao; nenhuma chamada upstream sem habilitacao explicita e gate operacional concluido."
-  - "Nao inferir termos EEA/non-EEA pela localizacao presumida do usuario; verificar a conta de faturamento aplicavel."
-  - "CORS nao e controle contra abuso nem custos."
-  - "Proibir logs de coordenadas, enderecos e payloads que revelem localizacao precisa em frontend e backend, inclusive em erros."
+  - "Make Nominatim the active provider because the user's current explicit selection supersedes the completed GeocodeBR direction."
+  - "Keep privacy approval and deployment-wide rate limiting as separate production gates because consent alone does not settle whether complaint coordinates may be sent to a public third party."
+  - "Implement and test the provider flow with mocked upstream calls while production remains disabled, so no real user coordinates or unnecessary test traffic reach Nominatim."
+  - "Keep every real request hard-disabled by default; choose a concrete gate only after inspecting the actual deployment and release path, and do not assume signing infrastructure."
+  - "Require explicit privacy eligibility as an approval artifact from the authorized privacy owner; browser consent does not satisfy this gate."
+  - "Use explicit documented Nominatim address-field mappings and describe returned results as potentially nearby features, not guaranteed incident locations."
+  - "Map street only from address.road; retain geolocation coordinates transiently in client memory after lookup failure for an explicit, non-network fallback action."
+  - "Retain the existing Node/Express browser-facing API boundary and Vite development proxy."
+  - "Preserve superseded GeocodeBR code until the Nominatim replacement is validated; do not make cleanup part of the provider migration."
+  - "Do not include service activation in this plan; every environment must fail closed when either release gate is missing."
+  - "If preflight finds no enforceable all-environment egress gate or shared one-request-per-second limiter, stop as no-go and request user direction rather than inventing infrastructure."
 assumptions:
-  - "O backend existente usa Node.js/Express e o frontend existente usa React/Vite."
-  - "GOOGLE_MAPS_API_KEY sera provisionada fora do chat e do codigo antes de chamadas reais; testes sem chave usarao respostas simuladas."
-  - "Neste fluxo, o endereco retornado sera mostrado no formulario, nao sobre um mapa."
+  - "The existing frontend is React/Vite, the backend is Node.js/Express, and deployment uses Docker Compose behind an externally managed proxy."
+  - "The authorized privacy owner and any approval artifact format are not known until the Wave 1 preflight."
+  - "No live Nominatim requests are needed to implement or validate this change; upstream behavior is covered with fixtures and mocked tests."
 
 baseline:
-  objective: "Atualizar o botão de localização atual para preencher o endereço da rua por geocodificação reversa usando OpenStreetMap Nominatim, escolhido pelo usuário. O browser já solicita geolocalização e atualmente preenche coordenadas."
+  objective: "Atualizar o botao de localizacao atual para preencher o endereco da rua por geocodificacao reversa usando OpenStreetMap Nominatim, escolhido pelo usuario. O browser ja solicita geolocalizacao e atualmente preenche coordenadas."
   acceptance_criteria:
-    - "Após consentimento explícito e permissão de geolocalização, converter latitude/longitude em endereço legível da rua com Nominatim e inserir no campo de endereço."
-    - "Informar claramente antes da ação que a localização será compartilhada com OpenStreetMap/Nominatim."
-    - "Tratar endereço não encontrado, falha de rede, permissão negada e indisponibilidade sem bloquear edição manual nem descartar silenciosamente as coordenadas úteis."
-    - "Não quebrar o comportamento/formulário existente; atribuir crédito OpenStreetMap quando os dados retornados forem usados."
+    - "Apos consentimento explicito e permissao de geolocalizacao, converter latitude/longitude em endereco legivel da rua com Nominatim e inserir no campo de endereco."
+    - "Informar claramente antes da acao que a localizacao sera compartilhada com OpenStreetMap/Nominatim."
+    - "Tratar endereco nao encontrado, falha de rede, permissao negada e indisponibilidade sem bloquear edicao manual nem descartar silenciosamente as coordenadas uteis."
+    - "Nao quebrar o comportamento/formulario existente; atribuir credito OpenStreetMap quando os dados retornados forem usados."
     - "Validar lint/build e casos de comportamento relevantes."
   captured_at: "2026-11-25T16:30:16-03:00"
 
 replan:
-  reason: "Reabrir Wave 1 para evidencia oficial dos termos e uso de coordenadas/endereco; definir runtime default-off e manter ativacao real separada."
+  reason: "Record the completed NO-GO feasibility preflight and block Nominatim migration until authorized privacy approval and operator evidence establish enforceable all-environment gates."
   changed_tasks:
-    - verify-google-geocoding-policy
-    - add-backend-reverse-geocoding
-    - integrate-frontend-reverse-geocoding
-    - activate-google-geocoding
-    - integrate-frontend-reverse-geocoding
+    - "nominatim-deployment-feasibility-preflight"
+    - "verify-privacy-approval-artifact"
+    - "review-safe-nominatim-controls"
+    - "establish-enforceable-nominatim-gates"
+    - "establish-global-nominatim-limit"
+    - "add-nominatim-backend"
+    - "integrate-nominatim-form"
+    - "verify-nominatim-release-gates"
   added_tasks:
-    - activate-google-geocoding
+    - "collect-nominatim-deployment-evidence"
   removed_tasks:
-    - decide-geocoding-endpoint-boundary
+    - "establish-signed-nominatim-activation-gate"
+    - "establish-global-nominatim-limit"
+    - "assess-nominatim-privacy-eligibility"
   preserved_acceptance_criteria:
-    - "A localizacao atual preenche o nome/endereco da rua."
-    - "Solicitar explicitamente ao usuario antes de compartilhar coordenadas."
-    - "Preservar fallback de coordenadas e permitir edicao manual diante de falhas."
-  new_risks:
-    - "Nominatim publico NO-GO: frontend nao pode garantir limite agregado de uma solicitacao por segundo; a politica sobre coordenadas precisas nao ficou clara."
-    - "Google Geocoding API exige billing e chave; chamadas geram consumo sujeito a quota, preco e limites operacionais do projeto."
-    - "A permissibilidade de enviar coordenadas precisas e persistir o endereco retornado depende dos termos, politica de privacidade e conta Google aplicaveis."
-    - "GOOGLE_MAPS_API_KEY ainda nao esta configurada; chamadas reais e validacao de ponta a ponta dependem de provisionamento externo seguro."
-    - "O backend existente usa cors() sem origem explicitamente configurada; a autenticacao aplicavel ao novo endpoint nao foi identificada no roteamento inspecionado."
-    - "Logs de coordenadas, enderecos ou payloads de geocodificacao podem revelar localizacao precisa em sucesso e em caminhos de erro."
-    - "A stack Compose conecta o backend a uma rede externa webproxy sem configuracao de proxy versionada neste repositorio; origem IP confiavel e suporte a rate limiting distribuido ainda nao foram verificados."
-    - "A documentacao Google consultada informa que budget alerts nao limitam gasto automaticamente e que spend caps se aplicam apenas a servicos elegiveis; Geocoding API nao aparece na lista atual de elegibilidade."
-    - "O usuario aprovou no maximo 15 consultas/dia; o limite efetivo no projeto Cloud e a disponibilidade de IP confiavel no proxy ainda nao foram verificados."
-  progress_signal: "Infra preflight concluido em infra-preflight.md, mas reviewer reabriu Wave 1 porque os termos aplicaveis e permissibilidade de coordenadas precisas, exibicao/submissao do endereco, atribuicao e retencao ainda precisam de evidencia oficial especifica. Nao inferir Brasil/EEA. Implementacao pode prosseguir somente com GOOGLE_GEOCODING_ENABLED=false por padrao e sem trafego real; quota 15/proxy/IP continuam no gate operacional."
+    - "Keep public Nominatim as the user's selected provider."
+    - "Retain address/street, neighborhood, city, and postal code fields, manual editability, OpenStreetMap attribution, and no fabricated missing values."
+    - "Keep all-environment default-off privacy and deployment-wide rate-limit gates and the nearby-feature accuracy caveat."
+    - "Preserve the completed plate removal and Vite development proxy."
+  new_risks: []
+  progress_signal: "Wave 1 preflight report deployment-feasibility-preflight.md completed with NO-GO. Missing inputs: explicit authorized privacy/legal approval; operator evidence of actual replica/host counts, external proxy and egress rules, all environment configuration and protected release permissions, and a shared fail-closed <=1 request/second limiter; tracked/reviewable app/routes/geocodeRoutes.js and src/TransitoForm/reverseGeocode.js. The versioned workflows deploy on push to main without shown environment approvals; .back.env is absent from tracked inventory; external proxy and active scale are unknown. No HTTP or code changes were made. Keep all migration and activation tasks blocked."
   revised_tasks:
-    - verify-google-geocoding-policy
-    - add-backend-reverse-geocoding
-    - integrate-frontend-reverse-geocoding
-    - activate-google-geocoding
+    - "nominatim-deployment-feasibility-preflight"
+    - "collect-nominatim-deployment-evidence"
+    - "verify-privacy-approval-artifact"
+    - "review-safe-nominatim-controls"
+    - "establish-enforceable-nominatim-gates"
+    - "add-nominatim-backend"
+    - "integrate-nominatim-form"
+    - "verify-nominatim-release-gates"
   invalidated_tasks:
-    - decide-geocoding-endpoint-boundary
+    - "establish-signed-nominatim-activation-gate"
+    - "establish-global-nominatim-limit"
+    - "assess-nominatim-privacy-eligibility"
   invalidated_assumptions: []
 
 tasks:
-  - id: verify-google-geocoding-policy
-    title: "Validando preflight Google e deployment publico"
-    description: "Um go/no-go verifica politica Google, limites disponiveis no projeto e capacidade de aplicar limite IP confiavel no deployment antes da implementacao."
+  - id: remove-optional-plate-field
+    title: "Preservando remocao do campo de placa"
+    description: "O formulario continua sem solicitar placa opcional e mantem a selecao veicular e os demais campos."
+    wave: 1
+    depends_on: []
+    agent: gem-implementer
+    status: completed
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that the optional vehicle-plate field remains absent while vehicle selection, other fields, and submission continue to work."
+    handoff:
+      constraints:
+        - "Preserve the completed plate removal and do not alter unrelated form behavior."
+      relevant_context:
+        - "src/TransitoForm/TransitoForm.jsx:placa"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: preserve-vite-development-proxy
+    title: "Preservando proxy de desenvolvimento"
+    description: "O proxy Vite continua encaminhando requisicoes /api ao backend local."
+    wave: 1
+    depends_on: []
+    agent: gem-implementer
+    status: completed
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that frontend development requests under /api still reach the local backend through the existing Vite proxy."
+    handoff:
+      constraints:
+        - "Keep the existing development proxy behavior; do not treat it as a production privacy or rate-limit control."
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: nominatim-deployment-feasibility-preflight
+    title: "Verificando viabilidade Nominatim"
+    description: "O preflight documenta NO-GO porque os controles de privacidade, egress e limite agregado nao foram comprovados."
+    wave: 1
+    depends_on: []
+    agent: gem-devops
+    status: completed
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that the preflight report records NO-GO because no authorized privacy/legal approval, protected all-environment Nominatim gate, or shared <=1 request/second limiter was found."
+      - "Verify that deployment replica count, external proxy/egress configuration, and actual environment settings remain unverified and are explicitly listed as operator evidence needs."
+      - "Verify that the report identifies relevant route/client files as untracked and therefore not reviewable as repository evidence."
+      - "Verify that the report records no HTTP requests, coordinate transmission, or code/configuration changes."
+    handoff:
+      constraints:
+        - "Record the completed report without expanding into new infrastructure design or unauthenticated operator systems."
+        - "Do not infer protected release controls, egress filtering, replica count, or shared limiting from Compose syntax or CORS."
+        - "Do not prescribe signed manifests unless the inspected deployment already supports that mechanism."
+        - "If evidence is insufficient or a required control is infeasible, return NO-GO and identify the user decision needed; keep every real request disabled."
+        - "Do not make live requests or use personal coordinates."
+      relevant_context:
+        - "docs/plan/20261125-endereco-reverso-nominatim/deployment-feasibility-preflight.md:1"
+        - "docker-compose.yml"
+      high_risk_signals:
+        - "Actual release permissions and all-environment egress enforcement are unverified."
+      critic_signals:
+        - "Global rate limiting/abuse controls"
+
+  - id: verify-privacy-approval-artifact
+    title: "Verificando artefato de aprovacao"
+    description: "A elegibilidade de transmitir coordenadas de denuncias e comprovada por artefato explicito emitido pelo responsavel autorizado de privacidade."
     wave: 1
     depends_on: []
     agent: gem-researcher
     exploration_mode: question
-    status: pending
+    status: blocked
     retries_used: 0
     acceptance_criteria:
-      - "Verify that current official Google Geocoding API policies, security guidance, terms, and privacy requirements are recorded with source URLs and check date before implementation."
-      - "Verify the applicable Google Maps Platform terms by checking the actual Google Cloud billing-account address/region; do not infer Brazil, EEA, or non-EEA applicability from the user's presumed location."
-      - "Verify from official terms and privacy sources whether precise user coordinates may be transmitted for this reverse-geocoding use after explicit disclosure and consent, and record any conditions or unresolved legal/privacy decision."
-      - "Verify from official policies whether the returned address may be displayed in this form and submitted/stored with a report, including applicable attribution requirements and retention/caching limits for coordinates and address content."
-      - "Verify the official policy findings have source URLs, date, exact applicable region/terms, and an explicit GO, NO-GO, or pending-decision result; if account region or permissibility cannot be established, mark this task blocked and request the missing evidence or decision."
-      - "Verify that the user decision is recorded exactly as public_limited: a public endpoint without authentication, limited by client IP and independent Google project controls."
-      - "Verify that the completed infrastructure report records one backend service with no declared replica count, an external webproxy with no versioned configuration, and unknown real-IP forwarding; defer trusted-IP confirmation to activation."
-      - "Verify that the report records the current generic CORS configuration and requires an explicit deployed frontend origin allowlist before activation; CORS is not authentication, abuse prevention, quota, or cost control."
-      - "Verify from official documentation that daily Geocoding quotas can be adjusted, while recording that the target project's quota, billing budget, alert recipients, and any spend cap are not verifiable from repository evidence."
-      - "Verify that the preflight distinguishes hard request quotas from budget alerts and records that alert configuration must be checked independently during activation; do not represent alerts-only budgets as hard caps."
-      - "Verify that the completed infrastructure preflight documents daily Google quotas as adjustable and records that the target project's exact 15/day setting is not verifiable from repository evidence and remains an activation check."
-      - "Verify and record the cost estimate for 15 requests/day: approximately 450-465 monthly Geocoding events, estimated at $0 if the 10,000-event free cap applies and remains available across the billing account; if that cap is already consumed, about $2.25-$2.33 for 450-465 events at the listed $5/1,000 first paid tier, subject to applicable region, SKU, tier, discounts, and account-wide usage."
-      - "Verify that current Google documentation is checked for spend-cap eligibility; record the user-approved 15/day hard request quota as the intended cost bound and keep budget alerts as a separate notification control, without describing them as a spend cap."
-      - "Verify that the completed preflight records external proxy/IP trust, project quota, key restrictions, billing, and alert settings as unverified runtime facts and assigns them to the separate activation gate."
-      - "Verify that implementation and automated tests may proceed only with a fail-closed endpoint and no real Google API calls until the activation gate passes."
+      - "Verify the official Nominatim policy requirements relevant to precise complaint coordinates and record the source and check date."
+      - "Verify whether an explicit approval artifact exists, identifies the authorized privacy owner, covers this precise complaint-location data flow, and states its eligibility for the public Nominatim service."
+      - "Verify that browser consent is recorded only as user consent and is not accepted as privacy-owner eligibility approval."
+      - "Verify that absent, ambiguous, expired, or unauthorized approval is reported as unresolved and keeps all real upstream requests disabled."
     handoff:
       constraints:
-        - "Refresh official sources before implementation: https://developers.google.com/maps/documentation/geocoding/policies ; https://developers.google.com/maps/documentation/geocoding/usage-and-billing ; https://developers.google.com/maps/api-security-best-practices ; https://developers.google.com/maps/documentation/geocoding/requests-reverse-geocoding ."
-        - "Check the applicable terms and privacy sources for the actual billing account: https://cloud.google.com/maps-platform/terms/maps-service-terms ; https://cloud.google.com/terms/maps-platform/eea ; https://policies.google.com/privacy ."
-        - "For official Geocoding-specific content, attribution, and retention conditions, consult https://developers.google.com/maps/documentation/geocoding/policies and the linked service-specific terms; record the exact applicable terms rather than inferring a region."
-        - "Verify quota controls at https://developers.google.com/maps/documentation/geocoding/usage-and-billing and https://docs.cloud.google.com/docs/quotas/overview ."
-        - "Verify global SKU pricing and billing-account aggregation at https://developers.google.com/maps/billing-and-pricing/pricing ."
-        - "Verify budget and spend-cap behavior and current eligible services at https://docs.cloud.google.com/billing/docs/how-to/budgets and https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps ."
-        - "Planning review on 2026-11-25 found that Geocoding API requires billing and an API key, permits use without a Google Map subject to restrictions, and requires Google Maps attribution. The global table lists 10,000 free monthly Geocoding Essentials events then $5/1,000 in the first paid tier; billing-account aggregation applies. Google budget docs distinguish alert-only budgets from spend caps; the current eligible-service list does not include Geocoding API."
-        - "The deployment compose file joins an external webproxy network; its real-IP forwarding and rate-limit capabilities are not configured in the inspected repository."
-        - "Do not authorize real coordinate transmission unless privacy/terms, trusted IP derivation, the 15/day hard project request quota, billing/alerts, and key restrictions are verified in the target environment."
-      relevant_context:
-        - "docs/plan/20261125-endereco-reverso-nominatim/infra-preflight.md:1"
+        - "Use the official policy source: https://operations.osmfoundation.org/policies/nominatim/."
+        - "Do not infer the authorized privacy owner or approval from user consent, a generic privacy policy, or undocumented verbal statements."
+        - "Do not contact Nominatim or send user coordinates."
+        - "Remain blocked until an explicit approval artifact is supplied by the authorized privacy owner; user consent is insufficient."
       high_risk_signals:
-        - "Precise user coordinates will be transmitted to a paid external service; consent, applicable terms, data use, attribution, quotas, and cost controls require preflight."
-        - "The applicable billing account region and project quotas are not yet confirmed."
-        - "The public_limited endpoint depends on trustworthy proxy-derived client IP and project-wide cost controls; the external proxy configuration is not available in the repository."
-        - "Google budget alerts do not cap Geocoding API spend; the user-approved 15/day request quota is the intended hard cost bound, but its project configuration remains unverified."
+        - "Precise complaint coordinates may be personal or confidential data under provider policy."
       critic_signals:
-        - "Reviewer finding 1: Wave 1 cannot be complete until official evidence confirms applicable terms and permission for precise coordinates, address display/submission, attribution, and retention; do not infer Brazil/EEA."
+        - "Privacy/consent terms"
 
-  - id: add-backend-reverse-geocoding
-    title: "Adicionando geocodificacao reversa no backend"
-    description: "O backend valida coordenadas, consulta o Google Geocoding API de forma protegida e aplica limites operacionais e respostas de erro seguras."
+  - id: collect-nominatim-deployment-evidence
+    title: "Renkendo evidencia de deployment"
+    description: "O operador fornece evidencia verificavel sobre ambientes, egress, protecao de configuracao e limitacao global antes de qualquer migracao."
     wave: 2
     depends_on:
-      - verify-google-geocoding-policy
-    agent: gem-implementer
-    status: pending
+      - nominatim-deployment-feasibility-preflight
+    agent: gem-devops
+    status: blocked
     retries_used: 0
     acceptance_criteria:
-      - "Verify that the backend exposes a reverse-geocoding endpoint that accepts only valid finite latitude/longitude values within geographic ranges and does not accept a key from the client."
-      - "Verify that the upstream Google request uses GOOGLE_MAPS_API_KEY only from backend environment configuration, never returns or logs the key, and makes no upstream request when the variable is missing."
-      - "Verify that GOOGLE_GEOCODING_ENABLED defaults to false when unset and the endpoint makes no upstream request unless it is explicitly set to true after the operational activation gate is complete."
-      - "Verify that backend request-rate and concurrency controls are finite, configurable, and enforced in alignment with the approved project quota and operational cost limit."
-      - "Verify that the endpoint implements the approved public_limited access model with a robust per-IP rate limiter based only on trusted proxy-derived client IPs and appropriate across all deployed backend instances."
-      - "Verify that the endpoint fails closed without making upstream calls unless GOOGLE_GEOCODING_ENABLED is explicitly true and GOOGLE_MAPS_API_KEY, the approved frontend origin allowlist, safely verified TRUST_PROXY, budget alerts, and the 15/day Google quota have all been operationally confirmed."
-      - "Verify that TRUST_PROXY is never enabled as an unrestricted trust of arbitrary forwarding headers and that inability to derive a trusted client IP leaves the public endpoint closed."
-      - "Verify that CORS uses the explicitly approved frontend origin(s) and is documented solely as a browser cross-origin policy, never as abuse, authentication, quota, or cost protection."
-      - "Verify that the implementation consumes only a preflight-approved operational readiness state and does not infer that the external Google quota or budget alerts are configured merely because code or tests pass."
-      - "Verify that successful Google responses return the street/address result needed by the form and that no-result, invalid-key/configuration, quota/rate-limit, timeout, and network failures map to safe, distinguishable application errors."
-      - "Verify that HTTP 429 or quota errors cause no aggressive automatic retry, preserve a clear retry-later signal, and do not bypass backend limits."
-      - "Verify that IP-based limits reject spoofed forwarded-IP headers and remain effective under the verified proxy and deployment topology."
-      - "Verify that automated backend tests cover coordinate validation, missing key, successful/no-result responses, upstream failures, and request limiting without requiring a real secret."
-      - "Verify that automated tests prove unset and false GOOGLE_GEOCODING_ENABLED block upstream calls, and that true-path behavior uses mocked Google responses only."
-      - "Verify that all automated backend tests never send real requests to Google or require a real API key."
-      - "Verify that backend application logs never contain coordinates, returned addresses, geocoding request/response payloads, or error details revealing precise location, across success and every error path."
-      - "Verify with automated log-capture tests that validation, missing-key, rate-limit, timeout, upstream-error, and success paths emit only redacted location-safe diagnostics."
-      - "Verify that runtime/configuration documentation names GOOGLE_MAPS_API_KEY without inventing, exposing, or committing a key value, and states that live service checks require secure external provisioning."
+      - "Verify that operator evidence inventories actual production, staging, development/test environments, deployed hosts/replicas, external proxy path, and outbound egress controls."
+      - "Verify that evidence demonstrates a protected all-environment default-off control that cannot be bypassed by manual environment configuration."
+      - "Verify that evidence demonstrates a shared application-wide limiter of <=1 Nominatim request per second across all instances and any environment permitted to make real requests, including fail-closed behavior."
+      - "Verify that backend route and frontend reverse-geocoding client files are tracked/reviewable so their runtime behavior can be assessed."
+      - "Verify that any missing evidence leaves this task blocked and all real Nominatim calls disabled."
     handoff:
       constraints:
-        - "The infrastructure preflight report is complete, but the official Google terms/privacy preflight has been reopened; do not implement until the revised Wave 1 returns GO. Any implementation after GO must remain fail-closed and does not authorize real Google traffic."
-        - "Keep GOOGLE_MAPS_API_KEY exclusively in backend environment configuration; never put its value in chat, frontend code, source control, responses, or logs."
-        - "Default GOOGLE_GEOCODING_ENABLED to false; set it true only through the separate operational activation task after every gate is verified."
-        - "Use the preflight-approved per-IP, project quota, and cost limits; do not invent account-specific limits."
-        - "Access model is public_limited, as explicitly decided by the user; apply robust IP limits and Google quota controls independently."
-        - "Keep the endpoint unavailable until GOOGLE_MAPS_API_KEY, the verified 15/day Cloud quota, allowed origin(s), and safe TRUST_PROXY configuration are all confirmed in the target deployment."
-        - "Retain only provider content allowed by the applicable Google terms and approved user-facing purpose."
-        - "CORS must use the explicitly approved frontend origins, but cannot substitute for authentication or backend abuse/cost limits."
-        - "Never log precise location, location-derived address, upstream payload, or unsanitized errors that could reveal location."
+        - "Required evidence includes actual deployed scale/replicas, proxy/egress rules, all environment configuration and release permissions, and shared limiter implementation/verification."
+        - "Do not accept Compose defaults, CORS, or per-process throttling as proof of the required controls."
+        - "Do not inspect credentials or transmit user coordinates; no live Nominatim requests."
+        - "If operator evidence cannot be provided, ask the user to obtain it from the deployment operator; do not begin provider migration."
       relevant_context:
-        - "app/routes/index.js"
-        - "server.js"
+        - "docs/plan/20261125-endereco-reverso-nominatim/deployment-feasibility-preflight.md:1"
+        - "app/routes/geocodeRoutes.js"
+        - "src/TransitoForm/reverseGeocode.js"
       high_risk_signals:
-        - "A publicly reachable backend route can incur unapproved Google Maps Platform charges if limits and key restrictions are ineffective."
-        - "The API key is a server-side credential and must not reach browser-visible code or responses."
+        - "Deployment runtime and route/client behavior cannot currently be verified from tracked repository evidence."
       critic_signals:
-        - "Reviewer finding 2: require an enforceable runtime default-off control, with tests proving GOOGLE_GEOCODING_ENABLED=false prevents upstream calls until the operational gate is complete."
+        - "Global rate limiting/abuse controls"
 
-  - id: integrate-frontend-reverse-geocoding
-    title: "Conectando o formulario ao endereco Google"
-    description: "A interface informa previamente o compartilhamento com Google Maps, solicita consentimento e apresenta endereco, fallback e erros retornados pelo backend."
+  - id: review-safe-nominatim-controls
+    title: "Revisando controles seguros"
+    description: "A revisao independente fica bloqueada ate a aprovacao de privacidade e evidencia operacional esclarecerem os controles reais."
     wave: 3
     depends_on:
-      - add-backend-reverse-geocoding
-    agent: gem-implementer
-    status: pending
+      - nominatim-deployment-feasibility-preflight
+      - verify-privacy-approval-artifact
+      - collect-nominatim-deployment-evidence
+    agent: gem-reviewer
+    status: blocked
     retries_used: 0
     acceptance_criteria:
-      - "Verify that before requesting browser geolocation or sending coordinates, the user is explicitly told that precise location will be shared with Google Maps/Google Geocoding API and can cancel without a location or network request."
-      - "Verify that after affirmative consent and browser permission, a valid returned street address fills the existing address field and Google Maps attribution is clearly visible as required by the approved policy."
-      - "Verify that no-result, backend-unavailable, network, quota/rate-limit, and upstream errors provide clear feedback while preserving any existing manual address and an editable coordinate fallback."
-      - "Verify that denied permission, unavailable geolocation, and the 10-second geolocation timeout preserve manual entry and communicate recovery guidance."
-      - "Verify that an endpoint-disabled response when GOOGLE_GEOCODING_ENABLED is false or unset gives clear feedback, preserves manual input and coordinate fallback, and does not trigger a retry."
-      - "Verify that repeated activation during an in-flight lookup produces at most one backend request, and no automatic retry is initiated after errors including HTTP 429."
-      - "Verify that frontend console, telemetry, and error reporting never log coordinates, the returned address, request/response payloads, or other data revealing precise location, including on success and failure paths."
-      - "Verify with log/telemetry capture that browser permission denial, backend errors, timeout, and success paths contain no precise location data."
-      - "Verify that the existing form submission and unrelated fields continue to work and that frontend lint/build plus relevant consent, success, failure, and manual-entry cases pass."
-      - "Verify that frontend tests use a mocked backend and never send real coordinates to Google or require a real API key."
+      - "Verify that the feasibility preflight identifies concrete existing deployment controls for all-environment hard-off behavior and a shared <=1 request/second limiter, or explicitly reports NO-GO."
+      - "Verify that a safe mock-only implementation can be bounded so no real upstream request is possible without both an authorized privacy approval artifact and verified limiter evidence."
+      - "Verify that the proposed test seams ensure all unit, integration, and release validation uses a mock transport and cannot reach Nominatim."
+      - "Verify that if safe controls cannot be defined from the inspected deployment, the review is blocked, downstream code tasks remain blocked, and the user is asked for a deployment/provider decision."
     handoff:
       constraints:
-        - "Only call the backend after explicit, informed user consent and successful acquisition of coordinates."
-        - "Never call Google directly from the browser and never expose GOOGLE_MAPS_API_KEY to frontend code."
-        - "Preserve existing address input on cancellation and failures; keep manual edits available."
-        - "Use only Google Maps attribution and display/storage behavior approved by the policy preflight."
+        - "Review the actual preflight evidence; do not assume or prescribe signing infrastructure or a protected deployment path not found there."
+        - "Do not authorize live Nominatim requests or treat browser consent as privacy eligibility."
+        - "Return an explicit GO for mock-only work with concrete controls or NO-GO with the unresolved user decision."
+      relevant_context:
+        - "NOMINATIM_ENABLED"
+      high_risk_signals:
+        - "A default-off setting alone is insufficient if another runtime or network path can bypass it."
+      critic_signals:
+        - "Privacy/consent terms"
+        - "Global rate limiting/abuse controls"
+
+  - id: establish-enforceable-nominatim-gates
+    title: "Aplicando gates de runtime"
+    description: "A implementacao dos controles de runtime permanece bloqueada ate haver decisao de privacidade e evidencia de deployment verificavel."
+    wave: 4
+    depends_on:
+      - nominatim-deployment-feasibility-preflight
+      - verify-privacy-approval-artifact
+      - collect-nominatim-deployment-evidence
+      - review-safe-nominatim-controls
+    agent: gem-devops
+    status: blocked
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that NOMINATIM_ENABLED defaults to false in every environment and that the actual deployment control identified by preflight prevents alternate/manual paths from enabling real egress."
+      - "Verify that an explicit approval artifact from the authorized privacy owner for this data flow and verified shared-limiter evidence are both required before any real upstream request."
+      - "Verify that missing, unresolved, denied, unauthorized, or expired privacy evidence, or absent/unavailable limiter coordination, blocks Nominatim requests before network egress in every environment."
+      - "Verify that the shared limiter enforces <=1 request per second across application instances and all real-request-capable environments; failure is fail-closed."
+      - "Verify mocked deployment checks for default-off, each missing/unresolved gate, and approved privacy plus verified limiter; no check makes a live request."
+      - "Verify that if preflight/review did not return GO, this task remains blocked and does not create an alternate activation mechanism."
+    handoff:
+      constraints:
+        - "Implement only the concrete mechanism supported by inspected deployment evidence and approved by review; do not assume or introduce a signed manifest unless preflight confirms existing support."
+        - "Keep all real Nominatim requests hard-disabled by default in production, staging, development, and local environments."
+        - "Never treat user consent or a documentation-only instruction as the privacy approval artifact."
+        - "Do not make live Nominatim requests or transmit user coordinates."
+      relevant_context:
+        - "docker-compose.yml"
+        - "app/routes/index.js"
+      high_risk_signals:
+        - "Any missing runtime or egress guard could transmit precise complaint coordinates to a public third party."
+      critic_signals:
+        - "Privacy/consent terms"
+        - "Global rate limiting/abuse controls"
+
+  - id: add-nominatim-backend
+    title: "Adicionando proxy backend Nominatim"
+    description: "O endpoint interno resolve reverse geocoding pelo Nominatim somente quando os gates de runtime aprovados bloqueiam por padrao e validam as duas evidencias exigidas."
+    wave: 5
+    depends_on:
+      - review-safe-nominatim-controls
+      - establish-enforceable-nominatim-gates
+    agent: gem-implementer
+    status: blocked
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that POST /api/geocode/reverse validates finite in-range coordinates and makes upstream requests only from the backend."
+      - "Verify the documented mapping: street uses address.road only; neighborhood uses the first nonempty of address.suburb, address.neighbourhood, and address.city_district; city uses the first nonempty of address.city, address.town, address.village, and address.municipality; postal code uses address.postcode."
+      - "Verify that absent mapped values are omitted and never invented, including when every documented fallback is empty."
+      - "Verify mapping tests cover address.road, prove pedestrian/residential values are not used as street fallbacks, cover precedence for neighborhood and city candidates, and verify missing values are omitted."
+      - "Verify that upstream requests identify the application with a policy-compliant User-Agent or Referer and that the endpoint provides attribution metadata for the form."
+      - "Verify that a documented reasonable cache avoids redundant upstream requests and that cache behavior does not weaken the deployment-wide one-request-per-second limit."
+      - "Verify that no automatic aggressive retries occur and all upstream access is blocked when the shared limiter is absent, unavailable, or disabled."
+      - "Verify that NOMINATIM_ENABLED defaults to false and that the backend makes no upstream request unless the concrete runtime gate approved by review validates both the authorized privacy approval artifact and shared-limiter verification."
+      - "Verify that missing, partial, unresolved, denied, unauthorized, or expired privacy approval, absent/unavailable limiter evidence, and any gate/configuration bypass block upstream calls in every environment."
+      - "Verify that user consent, a bare environment variable, or documentation alone cannot satisfy either runtime gate."
+      - "Verify that backend logs and error responses contain no coordinates, address strings, request/response payloads, or location-revealing exception details."
+      - "Verify mocked tests cover absent, partial, unresolved, denied, unauthorized, and valid privacy approval artifacts; missing/unavailable and verified limiter states; and default-off behavior, with valid gates reaching only a mocked upstream and no real network request."
+      - "Verify other mocked tests cover valid and invalid coordinates, field mapping and missing fields, cache hits, upstream errors/timeouts, limiter failure, disabled mode, and redacted logs without live Nominatim requests."
+    handoff:
+      constraints:
+        - "Keep the existing Node/Express backend as the only browser-facing geocoding boundary."
+        - "Use Nominatim only through the official public service and comply with its current policy; do not introduce a browser-direct provider call or fallback provider."
+        - "Integrate the shared deployment limiter delivered by establish-enforceable-nominatim-gates; do not substitute per-process throttling."
+        - "Keep NOMINATIM_ENABLED=false by default and gate every real upstream request in all environments; no development or staging bypass is allowed."
+        - "Integrate only the concrete runtime gate approved after preflight; do not prescribe a signed manifest unless existing deployment support is verified."
+        - "Fail closed for missing, incomplete, unresolved, denied, unauthorized, or expired privacy evidence and any missing/unavailable limiter in every environment; tests use mocked upstream responses only."
+        - "Do not send real user coordinates or make live upstream requests in tests."
+        - "Preserve the existing backend endpoint path /api/geocode/reverse."
+      relevant_context:
+        - "app/routes/index.js"
+        - "app/app.js"
+      high_risk_signals:
+        - "Backend proxying moves precise complaint coordinates to a public third party and must remain disabled without privacy approval."
+      critic_signals:
+        - "Privacy/consent terms"
+        - "Global rate limiting/abuse controls"
+
+  - id: integrate-nominatim-form
+    title: "Integrando consentimento e endereco"
+    description: "O formulario explica a transmissao de coordenadas, solicita consentimento explicito e apresenta os campos retornados como valores editaveis."
+    wave: 6
+    depends_on:
+      - add-nominatim-backend
+    agent: gem-implementer
+    status: blocked
+    retries_used: 0
+    acceptance_criteria:
+      - "Verify that the disclosure names Nominatim/OpenStreetMap and explains that coordinates will be transmitted before geolocation is requested."
+      - "Verify that cancellation, refusal, and dismissal do not invoke browser geolocation or send any network request."
+      - "Verify that affirmative consent requests location and sends acquired coordinates only to the application's own backend endpoint."
+      - "Verify that returned street/address, neighborhood, city, and postal code populate their corresponding available fields without replacing manual values with invented data, and remain editable."
+      - "Verify that if reverse lookup fails after geolocation succeeds, the acquired coordinates remain available only in transient client memory and are visibly offered through an explicit action to insert them into the address."
+      - "Verify that a manually entered address remains unchanged until the user explicitly selects the coordinate-insertion action, and that coordinates are not logged or persisted in browser storage."
+      - "Verify that selecting the explicit action inserts the retained coordinate pair into the address field, without silently replacing manual text beforehand."
+      - "Verify with mocked lookup failure that coordinates remain available, manual text is preserved until explicit action, and neither retry nor additional network request occurs."
+      - "Verify that the UI explains the result may refer to a nearby feature or address rather than the exact incident location, and does not promise incident-level accuracy."
+      - "Verify that a mocked result representing a nearby feature such as the railway station returned by the prior generic Praca da Se sample is presented as a suggestion, not as the confirmed incident address; do not repeat the live query."
+      - "Verify that failure, permission denial, missing address fields, or unavailable service preserves manual entry and does not trigger automatic retries."
+      - "Verify that OpenStreetMap attribution is visible with the suggestion and that form feedback remains understandable."
+      - "Verify that feedback, vehicle selection, plate removal, all other fields, and submission behavior remain intact under frontend tests, lint, and build."
+    handoff:
+      constraints:
+        - "Request explicit consent before browser geolocation; cancel must be a no-location and no-network path."
+        - "Never call Nominatim directly from the browser."
+        - "Do not log coordinates, address text, or location-revealing payloads in console, telemetry, or error reporting."
+        - "Keep fallback coordinates only in transient client memory; expose insertion as an explicit user action and do not retry or send another request."
+        - "Preserve form feedback, vehicle selector, completed plate removal, and manual editing."
       relevant_context:
         - "src/TransitoForm/TransitoForm.jsx:useCurrentLocation"
         - "src/TransitoForm/TransitoForm.jsx:local"
-        - "src/TransitoForm/TransitoForm.jsx:location-button"
       high_risk_signals:
-        - "The browser must disclose precise location transmission to Google before consent and must route coordinates only to the backend."
-      critic_signals: []
+        - "The consent disclosure must identify the third-party recipient before requesting precise location and state that a result may refer to a nearby feature rather than the incident location."
+      critic_signals:
+        - "Privacy/consent terms"
 
-  - id: activate-google-geocoding
-    title: "Liberando ativacao operacional Google"
-    description: "O trafego real so e liberado apos confirmacao operacional de chave, quota, origem permitida e proxy/IP confiavel."
-    wave: 4
+  - id: verify-nominatim-release-gates
+    title: "Verificando controles e gates de producao"
+    description: "A integracao e validada sem chamadas reais e a liberacao permanece no-go ate a viabilidade, aprovacao de privacidade e limite global serem comprovados."
+    wave: 7
     depends_on:
-      - verify-google-geocoding-policy
-      - add-backend-reverse-geocoding
-      - integrate-frontend-reverse-geocoding
+      - nominatim-deployment-feasibility-preflight
+      - verify-privacy-approval-artifact
+      - collect-nominatim-deployment-evidence
+      - review-safe-nominatim-controls
+      - establish-enforceable-nominatim-gates
+      - add-nominatim-backend
+      - integrate-nominatim-form
     agent: gem-devops
-    status: pending
+    status: blocked
     retries_used: 0
     acceptance_criteria:
-      - "Verify that GOOGLE_GEOCODING_ENABLED is false by default and remains false until the operational gate is completed."
-      - "Verify that activation remains closed unless GOOGLE_MAPS_API_KEY is securely configured only in the backend environment and appropriately restricted to Geocoding API and the deployed backend."
-      - "Verify in the target Google Cloud project that the Geocoding daily quota is configured to no more than the user-approved 15 requests/day and applies to all callers of that project."
-      - "Verify that billing budget thresholds and alert recipients are configured and monitored independently from the hard daily request quota; do not treat alerts as a spend cap."
-      - "Verify the deployed frontend origin allowlist is explicit and matches the actual site origins."
-      - "Verify with the deployment/proxy operator which proxy hops and client-IP headers are trusted, configure TRUST_PROXY narrowly for that topology, and confirm the per-IP limiter uses the real client IP across the deployed instances."
-      - "Verify that the endpoint remains closed and emits no upstream Google traffic if any key, quota, budget-alert, origin, TRUST_PROXY, or per-IP limiting prerequisite is missing or unconfirmed."
-      - "Verify that activation is marked blocked and no real traffic is enabled if the project quota cannot be confirmed at 15/day or trustworthy IP limiting cannot be established."
-      - "Verify that automated test suites remain fully mocked and do not require a live API key or make real Google requests."
-      - "Verify that GOOGLE_GEOCODING_ENABLED is set to true only after the recorded quota, billing/alerts, frontend origins, TRUST_PROXY, and per-IP limiter checks pass."
+      - "Verify that backend, frontend, lint, build, and relevant automated tests pass using mocked geocoding responses and perform no live Nominatim requests."
+      - "Verify that actual deployment evidence proves every environment is hard-off by default and has no alternate path around both the authorized privacy artifact and shared limiter."
+      - "Verify that user consent is not treated as a privacy approval artifact and that unresolved/absent owner approval keeps all real calls disabled."
+      - "Verify mocked checks for missing, partial, unresolved, and valid approval artifacts and limiter evidence; all tests and release checks make no live Nominatim request."
+      - "Verify that if preflight or reviewer returns NO-GO, code/release tasks remain blocked, real calls remain disabled, and the unresolved decision is escalated to the user."
+      - "Verify that the deployed request path cannot bypass the shared one-request-per-second limiter and that CORS is not relied on as protection."
+      - "Verify that operator documentation records the privacy approval gate, provider policy obligations, request identity, attribution, cache behavior, no-retry behavior, and fail-closed operation."
+      - "Verify that no environment activation or user-coordinate transmission occurs as part of this verification."
+      - "Verify that the previously completed plate removal and Vite development proxy behavior remain intact."
     handoff:
       constraints:
-        - "This is an operational activation gate, separate from implementation and automated tests."
-        - "Do not request or place GOOGLE_MAPS_API_KEY in chat, plan, source control, frontend, responses, or logs."
-        - "Do not enable real traffic until every acceptance criterion is verified in the target deployment."
-        - "The daily quota is 15 requests/day, as explicitly approved; do not add unapproved quota values."
+        - "Do not enable geocoding in any environment, transmit user coordinates, or make live Nominatim requests."
+        - "If either privacy eligibility or a trustworthy deployment-wide limiter is absent, report the gate as unresolved and leave real upstream requests disabled in every environment."
+        - "Do not create development/staging exceptions or make real Nominatim requests for testing."
+        - "Verify only the actual enforceable mechanism evidenced by preflight; do not assume signing or a protected release job."
+        - "Do not remove the previous GeocodeBR implementation until the Nominatim replacement has passed its mocked validation."
+        - "Preserve completed form feedback, vehicle selection, plate removal, and the Vite /api development proxy."
       relevant_context:
-        - "docs/plan/20261125-endereco-reverso-nominatim/infra-preflight.md:1"
-        - "Canal-de-transito-amalfis-deploy-main/docker-compose.yml:1"
-        - "Canal-de-transito-amalfis-backend-main/app/routes/index.js:8"
+        - "docker-compose.yml"
+        - "app/routes/index.js"
+        - "src/TransitoForm/TransitoForm.jsx:useCurrentLocation"
       high_risk_signals:
-        - "Live activation depends on external Google Cloud project settings and an external proxy configuration that are not verified in the repository."
-      critic_signals: []
+        - "Production activation depends on external privacy approval and deployment evidence not yet established."
+      critic_signals:
+        - "Privacy/consent terms"
+        - "Global rate limiting/abuse controls"

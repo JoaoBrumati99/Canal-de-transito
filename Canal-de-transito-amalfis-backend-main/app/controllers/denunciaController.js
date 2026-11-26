@@ -1,63 +1,117 @@
 const fs = require("fs/promises");
 const path = require("path");
-const dotenv = require("dotenv");
 const { enviarEmailMailerSend } = require("../config/emailApi.js");
-dotenv.config();
 
 class DenunciaController {
   static async cadastrarDenuncia(req, res) {
     try {
-      const { denuncia, contato } = req.body;
-      const anexos = req.files;
-
-      const listaAnexos = [];
-      if (anexos) {
-        anexos.forEach((anexo) => listaAnexos.push(anexo.filename));
+      const body = req.body || {};
+      if (body.consentimento !== "true" && body.consentimento !== true) {
+        return res.status(400).json({
+          message: "A autorização para tratamento dos dados é obrigatória.",
+          error: true,
+        });
       }
 
-      if (!denuncia) {
+      const denuncia = parseDenuncia(body.denuncia);
+      if (!denuncia || typeof denuncia.descricao !== "string" || !denuncia.descricao.trim()) {
         return res.status(400).json({
           message: "A descrição da ocorrência é obrigatória.",
           error: true,
         });
       }
 
-      await enviarEmail(denuncia, contato, listaAnexos.length ? listaAnexos : null);
-      return res
-        .status(200)
-        .json({ message: "Ocorrência de trânsito registrada com sucesso.", error: false });
+      const listaAnexos = Array.isArray(req.files)
+        ? req.files.map((anexo) => anexo.filename).filter(Boolean)
+        : [];
+      await enviarEmail(denuncia, body.contato, listaAnexos);
+      return res.status(200).json({
+        message: "Ocorrência encaminhada com sucesso.",
+        error: false,
+      });
     } catch (erro) {
-      console.log(erro);
-      return res
-        .status(500)
-        .json({ message: `${erro.message} - Falha ao registrar a ocorrência de trânsito`, error: true });
+      console.error("Falha ao encaminhar ocorrência por e-mail.", erro?.name || "Error");
+      return res.status(500).json({
+        message: "Não foi possível encaminhar a ocorrência. Tente novamente mais tarde.",
+        error: true,
+      });
     }
   }
 }
 
-function montarHtml(denunciaEscrita, contato) {
-  const blocoContato = contato
-    ? `<p style="margin-top:12px;"><strong style="color:#01407a;">Contato informado:</strong> ${contato}</p>`
-    : `<p style="margin-top:12px; color:#888;"><em>Nenhum contato informado.</em></p>`;
+function parseDenuncia(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    if (typeof parsed === "string") return { descricao: parsed };
+  } catch {
+    return { descricao: value };
+  }
+
+  return null;
+}
+
+function formatarValor(value) {
+  return value == null || value === "" ? "Não informado" : String(value);
+}
+
+function escapeHtml(value) {
+  return formatarValor(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+}
+
+function montarCamposEmail(denuncia, contato) {
+  return [
+    ["Protocolo", denuncia.protocolo],
+    ["Categoria", denuncia.categoria],
+    ["Veículo", denuncia.veiculo],
+    ["Placa", denuncia.placa],
+    ["Endereço", denuncia.local],
+    ["Data aproximada", denuncia.data],
+    ["Horário aproximado", denuncia.horario],
+    ["Descrição", denuncia.descricao],
+    ["Contato informado", contato],
+  ];
+}
+
+function montarHtml(denuncia, contato) {
+  const campos = montarCamposEmail(denuncia, contato)
+    .map(([label, value]) => (
+      `<p><strong style="color:#01407a;">${escapeHtml(label)}:</strong> ${escapeHtml(value).replace(/\n/g, "<br>")}</p>`
+    ))
+    .join("");
 
   return `
     <body style="margin:0 auto; font-family: Verdana, Geneva, Tahoma, sans-serif;">
-      <header style="display:flex; justify-content:center; align-items:center; padding:20px; color:#F24E1E;">
+      <header style="padding:20px; color:#F24E1E;">
         <h1>Canal de Trânsito Seguro | Amalfis</h1>
       </header>
       <div style="padding:10px;">
-        <h2 style="display:flex; justify-content:center; align-items:center; color:#01407a;">
-          Nova ocorrência de trânsito recebida:
-        </h2>
-        <p>${denunciaEscrita}</p>
-        ${blocoContato}
+        <h2 style="color:#01407a;">Nova ocorrência de trânsito recebida</h2>
+        ${campos}
+        <p><strong style="color:#01407a;">Autorização:</strong> recebida no formulário.</p>
       </div>
     </body>`;
 }
 
-async function enviarEmail(text, contato, listaAnexos) {
+function montarTexto(denuncia, contato) {
+  return [
+    "Nova ocorrência de trânsito:",
+    ...montarCamposEmail(denuncia, contato).map(([label, value]) => `${label}: ${formatarValor(value)}`),
+    "Autorização: recebida no formulário.",
+  ].join("\n\n");
+}
+
+async function enviarEmail(denuncia, contato, listaAnexos) {
   const attachments = await Promise.all(
-    (listaAnexos || []).map(async (filename) => {
+    listaAnexos.map(async (filename) => {
       const safeFilename = path.basename(filename);
       const filePath = path.join(
         process.cwd(),
@@ -80,8 +134,8 @@ async function enviarEmail(text, contato, listaAnexos) {
     to: process.env.RECEBEEMAIL,
     cc: attachments.length ? process.env.EMAIL_COPIA : undefined,
     subject: "Amalfis — Nova ocorrência de trânsito",
-    html: montarHtml(text, contato),
-    text: `Nova ocorrência de trânsito:\n\n${text}${contato ? `\n\nContato informado: ${contato}` : "\n\nNenhum contato informado."}`,
+    html: montarHtml(denuncia, contato),
+    text: montarTexto(denuncia, contato),
     attachments,
   });
   console.log(

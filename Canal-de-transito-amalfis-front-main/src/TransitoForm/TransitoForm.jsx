@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './TransitoForm.css';
 import maisIcon from '../../images/icons/mais.gif';
 import fiorinoQoy6g79Image from '../../images/fiorino_QOY6G79.svg';
@@ -20,6 +21,7 @@ import {
   AlertTriangleIcon,
   NoParkingIcon,
 } from '../Icons/Icons';
+import { getLocationErrorMessage, requestAddressSuggestion } from './reverseGeocode.js';
 
 const MAX_CHARS = 5000;
 const ACCEPTED = ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov', '.webm'];
@@ -73,49 +75,136 @@ const TransitoForm = () => {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   const [locationError, setLocationError] = useState(false);
+  const [locationConsentOpen, setLocationConsentOpen] = useState(false);
   const [data, setData] = useState('');
   const [horario, setHorario] = useState('');
-  const [placa, setPlaca] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState('');
   const [files, setFiles] = useState([]);
   const [fileError, setFileError] = useState('');
+  const [privacyConsent, setPrivacyConsent] = useState(false);
+  const [privacyTermOpen, setPrivacyTermOpen] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [protocol, setProtocol] = useState('');
   const [registeredAt, setRegisteredAt] = useState(null);
   const [dragging, setDragging] = useState(false);
 
   const fileInputRef = useRef(null);
+  const privacyTermDialogRef = useRef(null);
+  const privacyTermCloseRef = useRef(null);
+  const privacyTermTriggerRef = useRef(null);
+  const locationRequestInFlight = useRef(false);
+  const locationRequestId = useRef(0);
+  const locationAddressVersion = useRef(0);
+  const locationAbortController = useRef(null);
+  const submitInFlight = useRef(false);
+  const componentMounted = useRef(false);
 
   const charCount = text.length;
 
-  function useCurrentLocation() {
-    if (!navigator.geolocation) {
-      setLocationMessage('Este navegador não disponibiliza a localização.');
-      setLocationError(true);
-      return;
+  useEffect(() => {
+    componentMounted.current = true;
+    return () => {
+      componentMounted.current = false;
+      locationRequestId.current += 1;
+      locationRequestInFlight.current = false;
+      locationAbortController.current?.abort();
+      locationAbortController.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!privacyTermOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const dialog = privacyTermDialogRef.current;
+    const trigger = privacyTermTriggerRef.current;
+    privacyTermCloseRef.current?.focus();
+    document.body.style.overflow = 'hidden';
+
+    function handleDialogKeyDown(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setPrivacyTermOpen(false);
+        return;
+      }
+
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = dialog.querySelectorAll(
+        'button:not(:disabled), a[href], input:not(:disabled), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
+    document.addEventListener('keydown', handleDialogKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleDialogKeyDown);
+      document.body.style.overflow = previousOverflow;
+      trigger?.focus();
+    };
+  }, [privacyTermOpen]);
+
+  function invalidateLocationRequest() {
+    locationRequestId.current += 1;
+    locationRequestInFlight.current = false;
+    locationAddressVersion.current += 1;
+    locationAbortController.current?.abort();
+    locationAbortController.current = null;
+    setLocationLoading(false);
+  }
+
+  function askForLocationConsent() {
+    setLocationConsentOpen(true);
+  }
+
+  async function getCurrentLocationSuggestion() {
+    if (locationRequestInFlight.current) return;
+    locationRequestInFlight.current = true;
+    const requestId = locationRequestId.current + 1;
+    locationRequestId.current = requestId;
+    const addressVersion = locationAddressVersion.current;
+    const abortController = new AbortController();
+    locationAbortController.current = abortController;
+    setLocationConsentOpen(false);
     setLocationLoading(true);
-    setLocationMessage('Obtendo localização...');
+    setLocationMessage('Buscando um logradouro próximo...');
     setLocationError(false);
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setLocal(`Localização atual: latitude ${coords.latitude.toFixed(6)}, longitude ${coords.longitude.toFixed(6)}`);
+    try {
+      const suggestion = await requestAddressSuggestion({
+        consented: true,
+        geolocation: navigator.geolocation,
+        fetchImpl: globalThis.fetch.bind(globalThis),
+        signal: abortController.signal,
+      });
+      if (requestId !== locationRequestId.current || !componentMounted.current) return;
+      if (suggestion && addressVersion === locationAddressVersion.current) {
+        setLocal(suggestion);
+        setLocationMessage('');
+      } else if (suggestion) {
+        setLocationMessage('O endereço foi editado durante a busca e foi mantido. A sugestão não foi aplicada.');
+      }
+    } catch (error) {
+      if (requestId !== locationRequestId.current || !componentMounted.current) return;
+      setLocationError(true);
+      setLocationMessage(getLocationErrorMessage(error.code));
+    } finally {
+      if (requestId === locationRequestId.current && componentMounted.current) {
+        locationRequestInFlight.current = false;
+        locationAbortController.current = null;
         setLocationLoading(false);
-        setLocationMessage('Localização preenchida com coordenadas. Não há conversão automática para nome da rua.');
-      },
-      (error) => {
-        const messages = {
-          1: 'Permissão de localização negada. Autorize o acesso no navegador ou informe o endereço manualmente.',
-          2: 'Não foi possível determinar sua localização. Informe o endereço manualmente.',
-          3: 'A busca pela localização expirou. Tente novamente ou informe o endereço manualmente.',
-        };
-        setLocationLoading(false);
-        setLocationError(true);
-        setLocationMessage(messages[error.code] || 'Não foi possível obter sua localização. Informe o endereço manualmente.');
-      },
-      { timeout: 10000 }
-    );
+      }
+    }
   }
 
   function handleFiles(selectedFiles) {
@@ -166,6 +255,7 @@ const TransitoForm = () => {
   }
 
   function resetForm() {
+    invalidateLocationRequest();
     setStep(1);
     setOcorrencia('velocidade');
     setText('');
@@ -173,28 +263,74 @@ const TransitoForm = () => {
     setLocationLoading(false);
     setLocationMessage('');
     setLocationError(false);
+    setLocationConsentOpen(false);
     setData('');
     setHorario('');
-    setPlaca('');
     setSelectedVehicle('');
     setFiles([]);
     setSubmitted(false);
     setProtocol('');
     setRegisteredAt(null);
     setFileError('');
+    setPrivacyConsent(false);
+    setPrivacyTermOpen(false);
+    setSubmitError('');
+    setSubmitting(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  function handleFinalize() {
-    if (fileError) return;
+  async function handleFinalize() {
+    if (fileError || !privacyConsent || submitInFlight.current) return;
 
-    const submittedAt = new Date();
-    const datePart = submittedAt.toISOString().slice(0, 10).replace(/-/g, '');
+    submitInFlight.current = true;
+    setSubmitting(true);
+    setSubmitError('');
+
+    const sentAt = new Date();
+    const datePart = sentAt.toISOString().slice(0, 10).replace(/-/g, '');
     const referencePart = Math.random().toString(36).slice(2, 8).toUpperCase();
-    setProtocol(`CT-${datePart}-${referencePart}`);
-    setRegisteredAt(submittedAt);
-    setSubmitted(true);
-    setStep(4);
+    const occurrenceProtocol = `CT-${datePart}-${referencePart}`;
+    const selectedVehicleDetails = VEHICLES.find((vehicle) => vehicle.plate === selectedVehicle);
+    const payload = new FormData();
+    payload.append('denuncia', JSON.stringify({
+      protocolo: occurrenceProtocol,
+      categoria: OCORRENCIAS.find((item) => item.id === ocorrencia)?.label || ocorrencia,
+      veiculo: selectedVehicleDetails?.model || '',
+      placa: selectedVehicle,
+      local,
+      data,
+      horario,
+      descricao: text,
+    }));
+    payload.append('consentimento', 'true');
+    files.forEach((file) => payload.append('anexo', file));
+
+    try {
+      const response = await fetch('/api/denuncia', {
+        method: 'POST',
+        body: payload,
+      });
+      let result = {};
+      try {
+        result = await response.json();
+      } catch {
+        result = {};
+      }
+
+      if (!response.ok || result.error) {
+        throw new Error('submission_failed');
+      }
+
+      setProtocol(occurrenceProtocol);
+      setRegisteredAt(new Date());
+      setSubmitted(true);
+      setStep(4);
+    } catch {
+      setSubmitError('Não foi possível enviar a ocorrência. Verifique sua conexão e tente novamente; os dados preenchidos foram mantidos.');
+    } finally {
+      submitInFlight.current = false;
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -282,7 +418,7 @@ const TransitoForm = () => {
               <div className="field detail-grid__wide">
                 <label htmlFor="local" className="field__label">Endereço</label>
                 <p id="local-hint" className="location-hint">
-                  A localização será registrada como coordenadas, sem conversão automática para nome da rua.
+                  Digite o endereço manualmente ou peça uma sugestão de logradouro próximo.
                 </p>
                 <input
                   id="local"
@@ -291,24 +427,48 @@ const TransitoForm = () => {
                   value={local}
                   aria-describedby="local-hint"
                   onChange={(e) => {
+                    locationAddressVersion.current += 1;
                     setLocal(e.target.value);
-                    setLocationMessage('');
-                    setLocationError(false);
+                    if (locationError) {
+                      setLocationMessage('');
+                      setLocationError(false);
+                    }
                   }}
                 />
                 <button
                   type="button"
                   className="location-button"
-                  onClick={useCurrentLocation}
+                  onClick={askForLocationConsent}
                   disabled={locationLoading}
                 >
-                  {locationLoading ? 'Obtendo localização...' : 'Usar minha localização'}
+                  {locationLoading ? 'Buscando logradouro...' : 'Sugerir logradouro pela minha localização'}
                 </button>
+                {locationConsentOpen && (
+                  <div className="location-consent" role="group" aria-labelledby="location-consent-title">
+                    <p id="location-consent-title" className="location-consent__title">Autorizar uso da localização?</p>
+                    <p className="location-consent__text">
+                      Se continuar, este navegador obterá suas coordenadas e as enviará ao backend deste aplicativo, que as compartilhará com a Geoapify para buscar rua, número (se disponível), bairro, cidade e CEP. A sugestão pode indicar um local próximo, não necessariamente o ponto exato da ocorrência.
+                    </p>
+                    <div className="location-consent__actions">
+                      <button type="button" className="location-button" onClick={getCurrentLocationSuggestion}>
+                        Concordo e continuar
+                      </button>
+                      <button type="button" className="location-cancel" onClick={() => setLocationConsentOpen(false)}>
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {locationMessage && (
                   <p className={`location-message ${locationError ? 'location-message--error' : ''}`} role={locationError ? 'alert' : 'status'}>
                     {locationMessage}
                   </p>
                 )}
+                <p className="location-attribution">
+                  Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a>
+                  {' · '}
+                  <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
+                </p>
               </div>
               <div className="field">
                 <label htmlFor="data" className="field__label">Data aproximada</label>
@@ -328,17 +488,6 @@ const TransitoForm = () => {
                   className="field__input"
                   value={horario}
                   onChange={(e) => setHorario(e.target.value)}
-                />
-              </div>
-              <div className="field detail-grid__wide">
-                <label htmlFor="placa" className="field__label">Placa do veículo <em>(opcional, se souber)</em></label>
-                <input
-                  id="placa"
-                  className="field__input"
-                  placeholder="ABC1D23"
-                  value={placa}
-                  maxLength={8}
-                  onChange={(e) => setPlaca(e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase())}
                 />
               </div>
             </div>
@@ -409,7 +558,125 @@ const TransitoForm = () => {
                 </span>
               </div>
             </div>
+
+            <div className="privacy-consent">
+              <div className="privacy-consent__label">
+                <input
+                  id="privacy-consent"
+                  type="checkbox"
+                  checked={privacyConsent}
+                  onChange={(event) => setPrivacyConsent(event.target.checked)}
+                  aria-labelledby="privacy-consent-copy privacy-term-trigger"
+                />
+                <div>
+                  <label id="privacy-consent-copy" htmlFor="privacy-consent">
+                    Concordo com o tratamento dos meus dados conforme o{' '}
+                  </label>
+                  <button
+                    ref={privacyTermTriggerRef}
+                    id="privacy-term-trigger"
+                    type="button"
+                    className="privacy-term-link"
+                    aria-haspopup="dialog"
+                    aria-expanded={privacyTermOpen}
+                    aria-controls="privacy-term-dialog"
+                    onClick={() => setPrivacyTermOpen(true)}
+                  >
+                    Termo de Uso de Dados e Aviso de Privacidade
+                  </button>
+                  .
+                </div>
+              </div>
+            </div>
           </section>
+        )}
+
+        {privacyTermOpen && createPortal(
+          <div
+            className="privacy-modal-backdrop"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setPrivacyTermOpen(false);
+            }}
+          >
+            <section
+              ref={privacyTermDialogRef}
+              id="privacy-term-dialog"
+              className="privacy-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="privacy-term-title"
+            >
+              <header className="privacy-modal__header">
+                <div>
+                  <h2 id="privacy-term-title">Termo de Uso de Dados e Aviso de Privacidade</h2>
+                </div>
+                <button
+                  ref={privacyTermCloseRef}
+                  type="button"
+                  className="privacy-modal__close"
+                  aria-label="Fechar Termo de Uso de Dados e Aviso de Privacidade"
+                  onClick={() => setPrivacyTermOpen(false)}
+                >
+                  ×
+                </button>
+              </header>
+              <div className="privacy-modal__content">
+                <section>
+                  <h3>1. Quem trata os dados</h3>
+                  <p>
+                    O controlador dos dados é a <strong>Amalfis Uniformes Confecção de Roupas LTDA</strong>, CNPJ <strong>11.744.716/0001-10</strong>, Av. Valentina Mello Freire Borenstein, 450, Vila São Francisco, Mogi das Cruzes/SP, CEP 08735-270, por meio do Canal de Trânsito Seguro.
+                  </p>
+                  <p>
+                    Contato para assuntos de privacidade:{' '}
+                    <a href="mailto:contato@amalfis.com.br">contato@amalfis.com.br</a>
+                    {' | '}
+                    <a href="tel:+551147955219">(11) 4795-5219</a>
+                  </p>
+                </section>
+                <section>
+                  <h3>2. Quais dados são tratados</h3>
+                  <p>
+                    O formulário pode receber a categoria da ocorrência, modelo e placa do veículo, endereço, data e horário aproximados, descrição e fotos ou vídeos opcionais. A descrição e os anexos podem conter dados que identifiquem pessoas. O formulário não solicita nome nem e-mail do denunciante.
+                  </p>
+                </section>
+                <section>
+                  <h3>3. Para que os dados são usados</h3>
+                  <p>
+                    Os dados são usados para registrar, analisar e encaminhar a ocorrência à equipe responsável da Amalfis. Não serão usados para finalidades incompatíveis com esse atendimento sem informação prévia ao titular.
+                  </p>
+                </section>
+                <section>
+                  <h3>4. Sugestão de endereço pela localização</h3>
+                  <p>
+                    Se você solicitar a sugestão e autorizar o uso da localização, o navegador obtém suas coordenadas e o sistema as envia à Geoapify para buscar um endereço aproximado. Você pode revisar e editar o endereço. O envio final da ocorrência contém apenas o endereço preenchido, não as coordenadas.
+                  </p>
+                </section>
+                <section>
+                  <h3>5. Compartilhamento e armazenamento</h3>
+                  <p>
+                    A ocorrência e seus anexos são encaminhados ao e-mail corporativo da Amalfis por meio do MailerSend. Os anexos também ficam armazenados no servidor do aplicativo. As coordenadas só são compartilhadas com a Geoapify quando você solicita a sugestão de endereço.
+                  </p>
+                </section>
+                <section>
+                  <h3>6. Retenção e seus direitos</h3>
+                  <p>
+                    Os dados e anexos são mantidos por até <strong>12 meses</strong> após o encerramento da ocorrência e, depois, excluídos ou anonimizados. Você pode solicitar acesso, correção ou exclusão pelo e-mail{' '}
+                    <a href="mailto:contato@amalfis.com.br">contato@amalfis.com.br</a>.
+                  </p>
+                </section>
+              </div>
+              <footer className="privacy-modal__footer">
+                <button
+                  type="button"
+                  className="submit-btn"
+                  onClick={() => setPrivacyTermOpen(false)}
+                >
+                  Fechar termo
+                </button>
+              </footer>
+            </section>
+          </div>,
+          document.body
         )}
 
         {step === 4 && (
@@ -428,7 +695,6 @@ const TransitoForm = () => {
                   {local && <div><dt>Local</dt><dd>{local}</dd></div>}
                   {data && <div><dt>Data</dt><dd>{data.split('-').reverse().join('/')}</dd></div>}
                   {horario && <div><dt>Horário</dt><dd>{horario}</dd></div>}
-                  {placa && <div><dt>Placa</dt><dd>{placa}</dd></div>}
                   <div><dt>Descrição</dt><dd>{text}</dd></div>
                   {files.length > 0 && <div><dt>Anexos</dt><dd>{files.map((file) => file.name).join(', ')}</dd></div>}
                 </dl>
@@ -440,6 +706,9 @@ const TransitoForm = () => {
                   Imprimir comprovante
                 </button>
               </div>
+              <p className="print-help">
+                Para remover o endereço do site do comprovante, desmarque “Cabeçalhos e rodapés” nas opções de impressão.
+              </p>
             </section>
           ) : null
         )}
@@ -462,10 +731,18 @@ const TransitoForm = () => {
                 <ArrowRightIcon width={20} height={20} />
               </button>
             ) : (
-              <button type="button" className="submit-btn" onClick={handleFinalize}>
-                Finalizar
-                <ArrowRightIcon width={20} height={20} />
-              </button>
+              <>
+                {submitError && <p className="submit-error" role="alert">{submitError}</p>}
+                <button
+                  type="button"
+                  className="submit-btn"
+                  onClick={handleFinalize}
+                  disabled={!privacyConsent || submitting || Boolean(fileError)}
+                >
+                  {submitting ? 'Enviando...' : 'Finalizar'}
+                  {!submitting && <ArrowRightIcon width={20} height={20} />}
+                </button>
+              </>
             )}
           </div>
         )}

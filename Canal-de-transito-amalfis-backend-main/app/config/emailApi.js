@@ -25,9 +25,14 @@ async function enviarEmailMailerSend({ to, cc, subject, html, text, attachments 
     throw new Error("Configure EMAIL_FROM no arquivo .env.");
   }
 
+  const destinatarios = normalizarDestinatarios(to);
+  if (!destinatarios.length) {
+    throw new Error("Configure RECEBEEMAIL no arquivo .env.");
+  }
+
   const payload = {
     from: { email: remetente, name: "Amalfis Denúncias" },
-    to: normalizarDestinatarios(to),
+    to: destinatarios,
     subject,
     html,
     text,
