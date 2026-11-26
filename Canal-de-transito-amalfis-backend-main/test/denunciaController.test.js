@@ -1,10 +1,8 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs/promises");
 const { test } = require("node:test");
 const DenunciaController = require("../app/controllers/denunciaController.js");
 
 const originalFetch = global.fetch;
-const originalReadFile = fs.readFile;
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const originalEnv = {
@@ -55,7 +53,6 @@ test("requires explicit consent and does not send an email without it", async ()
 
 test("sends structured occurrence details and attachments to the configured company inbox", async () => {
   let mailPayload;
-  fs.readFile = async () => Buffer.from("sample attachment");
   global.console.log = () => {};
   configureMailerSend(async (_url, options) => {
     mailPayload = JSON.parse(options.body);
@@ -78,7 +75,10 @@ test("sends structured occurrence details and attachments to the configured comp
 
   await DenunciaController.cadastrarDenuncia({
     body: { denuncia: JSON.stringify(denuncia), consentimento: "true" },
-    files: [{ filename: "evidence.jpg" }],
+    files: [{
+      originalname: "evidence.jpg",
+      buffer: Buffer.from("sample attachment"),
+    }],
   }, response);
 
   assert.equal(response.statusCode, 200);
@@ -115,7 +115,6 @@ test("does not return MailerSend error details to the browser", async () => {
 
 test.after(() => {
   global.fetch = originalFetch;
-  fs.readFile = originalReadFile;
   console.log = originalConsoleLog;
   console.error = originalConsoleError;
   for (const [key, value] of Object.entries(originalEnv)) {

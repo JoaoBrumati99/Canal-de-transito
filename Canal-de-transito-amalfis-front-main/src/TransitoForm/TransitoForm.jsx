@@ -22,8 +22,10 @@ import {
   NoParkingIcon,
 } from '../Icons/Icons';
 import { getLocationErrorMessage, requestAddressSuggestion } from './reverseGeocode.js';
+import { apiUrl } from '../api.js';
 
 const MAX_CHARS = 5000;
+const MAX_TOTAL_FILE_BYTES = 4 * 1024 * 1024;
 const ACCEPTED = ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov', '.webm'];
 const VEHICLES = [
   { plate: 'QOY6G79', model: 'Fiorino', image: fiorinoQoy6g79Image },
@@ -213,6 +215,7 @@ const TransitoForm = () => {
 
     const acceptedFiles = [];
     const errors = [];
+    let totalFileBytes = files.reduce((total, file) => total + file.size, 0);
     const knownFiles = new Set(
       files.map((selectedFile) => `${selectedFile.name}:${selectedFile.size}:${selectedFile.lastModified}`)
     );
@@ -227,7 +230,13 @@ const TransitoForm = () => {
         return;
       }
 
+      if (totalFileBytes + selectedFile.size > MAX_TOTAL_FILE_BYTES) {
+        errors.push(`${selectedFile.name}: O limite total de anexos é 4 MB por envio.`);
+        return;
+      }
+
       acceptedFiles.push(selectedFile);
+      totalFileBytes += selectedFile.size;
       knownFiles.add(fileKey);
     });
 
@@ -306,7 +315,7 @@ const TransitoForm = () => {
     files.forEach((file) => payload.append('anexo', file));
 
     try {
-      const response = await fetch('/api/denuncia', {
+      const response = await fetch(apiUrl('/api/denuncia'), {
         method: 'POST',
         body: payload,
       });
@@ -318,6 +327,7 @@ const TransitoForm = () => {
       }
 
       if (!response.ok || result.error) {
+        if (response.status === 413) throw new Error('attachments_too_large');
         throw new Error('submission_failed');
       }
 
@@ -325,8 +335,10 @@ const TransitoForm = () => {
       setRegisteredAt(new Date());
       setSubmitted(true);
       setStep(4);
-    } catch {
-      setSubmitError('Não foi possível enviar a ocorrência. Verifique sua conexão e tente novamente; os dados preenchidos foram mantidos.');
+    } catch (error) {
+      setSubmitError(error.message === 'attachments_too_large'
+        ? 'O limite total de anexos é 4 MB por envio.'
+        : 'Não foi possível enviar a ocorrência. Verifique sua conexão e tente novamente; os dados preenchidos foram mantidos.');
     } finally {
       submitInFlight.current = false;
       setSubmitting(false);
@@ -507,7 +519,7 @@ const TransitoForm = () => {
               >
                 <UploadCloudIcon className="dropzone__icon" width={30} height={30} />
                 <span className="dropzone__title">{files.length ? 'Adicionar mais arquivos' : 'Selecionar fotos ou vídeos'}</span>
-                <span className="dropzone__hint">Formatos aceitos: JPG, PNG, WEBP, MP4, MOV ou WEBM. Sem limite de quantidade ou tamanho definido pelo formulário.</span>
+                <span className="dropzone__hint">Formatos aceitos: JPG, PNG, WEBP, MP4, MOV ou WEBM. Limite total de anexos: 4 MB por envio.</span>
               </button>
               {files.length > 0 && (
                 <div className="file-list">
@@ -654,13 +666,13 @@ const TransitoForm = () => {
                 <section>
                   <h3>5. Compartilhamento e armazenamento</h3>
                   <p>
-                    A ocorrência e seus anexos são encaminhados ao e-mail corporativo da Amalfis por meio do MailerSend. Os anexos também ficam armazenados no servidor do aplicativo. As coordenadas só são compartilhadas com a Geoapify quando você solicita a sugestão de endereço.
+                    A ocorrência e seus anexos são encaminhados ao e-mail corporativo da Amalfis por meio do MailerSend. Os anexos são processados temporariamente pelo backend para o envio e não ficam armazenados de forma persistente pelo aplicativo. As coordenadas só são compartilhadas com a Geoapify quando você solicita a sugestão de endereço.
                   </p>
                 </section>
                 <section>
                   <h3>6. Retenção e seus direitos</h3>
                   <p>
-                    Os dados e anexos são mantidos por até <strong>12 meses</strong> após o encerramento da ocorrência e, depois, excluídos ou anonimizados. Você pode solicitar acesso, correção ou exclusão pelo e-mail{' '}
+                    A ocorrência e os anexos recebidos pela equipe no e-mail corporativo são mantidos por até <strong>12 meses</strong> após o encerramento da ocorrência e, depois, excluídos ou anonimizados. Você pode solicitar acesso, correção ou exclusão pelo e-mail{' '}
                     <a href="mailto:contato@amalfis.com.br">contato@amalfis.com.br</a>.
                   </p>
                 </section>

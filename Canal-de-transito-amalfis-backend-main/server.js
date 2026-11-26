@@ -2,13 +2,12 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const app = require("./app/app.js");
-const PORT = 3001;
 
-const http = require("http");
+if (require.main === module && !process.env.VERCEL) {
+  const PORT = Number(process.env.PORT) || 3001;
+  app.listen(PORT, () => {
+    console.log(`Servidor ligado na porta ${PORT}`);
+  });
+}
 
-const server = http.createServer(app);
-
-server.listen(PORT, () => {
-  // usando o app.js para escutar o servidor
-  console.log("Servidor ligado na porta " + PORT);
-});
+module.exports = app;

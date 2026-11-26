@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { apiUrl } from '../api.js';
 import TransitoForm from './TransitoForm.jsx';
 
 afterEach(() => {
@@ -21,6 +22,7 @@ it('opens the full privacy term without checking consent and closes with Escape'
   const dialog = screen.getByRole('dialog', { name: 'Termo de Uso de Dados e Aviso de Privacidade' });
   expect(dialog.textContent).toContain('Amalfis Uniformes Confecção de Roupas LTDA');
   expect(dialog.textContent).toContain('contato@amalfis.com.br');
+  expect(dialog.textContent).toContain('não ficam armazenados de forma persistente');
   expect(dialog.textContent).toContain('12 meses');
   expect(consentCheckbox.checked).toBe(false);
   expect(screen.getByRole('button', { name: 'Finalizar' }).disabled).toBe(true);
@@ -61,7 +63,7 @@ function stubApiFetch(locationFetch, submissionResponse = {
   json: async () => ({ message: 'Ocorrência encaminhada com sucesso.', error: false }),
 }) {
   const apiFetch = vi.fn((url, options) => {
-    if (url === '/api/denuncia') return Promise.resolve(submissionResponse);
+    if (url === apiUrl('/api/denuncia')) return Promise.resolve(submissionResponse);
     return locationFetch(url, options);
   });
   vi.stubGlobal('fetch', apiFetch);
@@ -76,6 +78,24 @@ async function submitAddress() {
 }
 
 describe('address location suggestion form flow', () => {
+  it('rejects attachments whose combined size exceeds 4 MB', () => {
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: vi.fn() } });
+    const apiFetch = stubApiFetch(vi.fn());
+    openAddressStep();
+    const fileInput = document.querySelector('input[type="file"]');
+    const firstFile = new File([new Uint8Array(3 * 1024 * 1024)], 'first.mp4', { type: 'video/mp4' });
+    const secondFile = new File([new Uint8Array(2 * 1024 * 1024)], 'second.mp4', { type: 'video/mp4' });
+
+    fireEvent.change(fileInput, { target: { files: [firstFile] } });
+    fireEvent.change(fileInput, { target: { files: [secondFile] } });
+
+    expect(screen.getByRole('alert').textContent).toContain('O limite total de anexos é 4 MB');
+    expect(screen.getByText('first.mp4')).toBeTruthy();
+    expect(screen.queryByText('second.mp4')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Finalizar' }).disabled).toBe(true);
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
   it('cancellation sends no location and manual address remains editable and is submitted', async () => {
     const getCurrentPosition = vi.fn();
     const fetchMock = vi.fn();
@@ -127,10 +147,10 @@ describe('address location suggestion form flow', () => {
     fireEvent.click(finalizeButton);
     await waitFor(() => expect(screen.getByText('Ocorrência registrada!')).toBeTruthy());
 
-    const [url, options] = apiFetch.mock.calls.find(([requestUrl]) => requestUrl === '/api/denuncia');
+    const [url, options] = apiFetch.mock.calls.find(([requestUrl]) => requestUrl === apiUrl('/api/denuncia'));
     const formData = options.body;
     const occurrence = JSON.parse(formData.get('denuncia'));
-    expect(url).toBe('/api/denuncia');
+    expect(url).toBe(apiUrl('/api/denuncia'));
     expect(formData.get('consentimento')).toBe('true');
     expect(formData.getAll('anexo').map((file) => file.name)).toEqual(['evidence.jpg']);
     expect(occurrence).toMatchObject({
@@ -163,6 +183,23 @@ describe('address location suggestion form flow', () => {
     expect(screen.queryByText('Ocorrência registrada!')).toBeNull();
     expect(screen.getByLabelText('Descreva a situação observada').value).toBe('Descrição que deve permanecer');
     expect(screen.getByRole('alert').textContent).not.toContain('private server detail');
+  });
+
+  it('shows the attachment limit when the API rejects an oversized submission', async () => {
+    stubApiFetch(vi.fn(), {
+      ok: false,
+      status: 413,
+      json: async () => ({ message: 'O limite total de anexos é 4 MB por envio.', error: true }),
+    });
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: vi.fn() } });
+    openAddressStep();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Concordo com o tratamento.*Termo de Uso de Dados e Aviso de Privacidade/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('O limite total de anexos é 4 MB');
+    });
+    expect(screen.queryByText('Ocorrência registrada!')).toBeNull();
   });
 
   it('shows an editable suggestion and submits the user-edited value', async () => {

@@ -1,4 +1,5 @@
 import { createServer as createHttpServer } from "node:http";
+import { env } from "node:process";
 import { describe, expect, it } from "vitest";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../vite.config.js";
@@ -8,7 +9,7 @@ describe("Vite development API proxy", () => {
     const proxy = viteConfig.server.proxy;
 
     expect(proxy["/api"]).toMatchObject({
-      target: process.env.API_PROXY_TARGET || "http://localhost:3001",
+      target: env.API_PROXY_TARGET || "http://localhost:3001",
       changeOrigin: true,
     });
     expect(proxy["/api"].rewrite).toBeUndefined();

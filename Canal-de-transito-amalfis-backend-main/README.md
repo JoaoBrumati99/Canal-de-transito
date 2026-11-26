@@ -1,4 +1,39 @@
-# API
+# Canal de Trânsito Seguro — Backend
+
+Express API for the Canal de Trânsito Seguro application.
+
+## Publish on Vercel
+
+Create a second Vercel project connected to this repository and set its Root
+Directory to `Canal-de-transito-amalfis-backend-main`. Vercel detects the
+Express app exported by `server.js` and deploys it as a Node.js Function.
+
+Add these Environment Variables to the backend Vercel project:
+
+- `MAILERSEND_API_TOKEN`
+- `EMAIL_FROM`
+- `RECEBEEMAIL`
+- `EMAIL_COPIA` (optional)
+- `FRONTEND_ORIGIN` (for example, `https://canal-de-transito-amalfis.vercel.app`, without a trailing slash)
+- `GEOAPIFY_ENABLED` (`true` only when the integration is approved and configured)
+- `GEOAPIFY_API_KEY`
+- `GEOAPIFY_RATE_LIMIT_PER_MINUTE` (optional; defaults to `10`)
+- `GEOAPIFY_MAX_CONCURRENT` (optional; defaults to `2`)
+
+After the backend's first deployment, set `VITE_API_BASE_URL` in the frontend
+Vercel project's Environment Variables to the backend deployment URL and
+redeploy the frontend. Never expose API keys in the frontend project.
+
+Attachments are held in memory only while the email is being sent. The total
+attachment size is limited to 4 MB per submission; the application does not
+persist uploaded files.
+
+For local development, create `.env` from `.env.example` and run:
+
+```sh
+npm install
+npm run dev
+```
 
 ## Configurar e testar o e-mail
 

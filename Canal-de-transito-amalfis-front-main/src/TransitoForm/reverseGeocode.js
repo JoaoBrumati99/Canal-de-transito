@@ -1,4 +1,6 @@
-const GEOCODE_ENDPOINT = '/api/geocode/reverse';
+import { apiUrl } from '../api.js';
+
+const GEOCODE_ENDPOINT = apiUrl('/api/geocode/reverse');
 const LOCATION_TIMEOUT_MS = 10000;
 const REQUEST_TIMEOUT_MS = 10000;
 const BACKEND_ERRORS = new Set([

@@ -1,4 +1,3 @@
-const fs = require("fs/promises");
 const path = require("path");
 const { enviarEmailMailerSend } = require("../config/emailApi.js");
 
@@ -21,10 +20,8 @@ class DenunciaController {
         });
       }
 
-      const listaAnexos = Array.isArray(req.files)
-        ? req.files.map((anexo) => anexo.filename).filter(Boolean)
-        : [];
-      await enviarEmail(denuncia, body.contato, listaAnexos);
+      const anexos = prepararAnexos(req.files);
+      await enviarEmail(denuncia, body.contato, anexos);
       return res.status(200).json({
         message: "Ocorrência encaminhada com sucesso.",
         error: false,
@@ -109,27 +106,24 @@ function montarTexto(denuncia, contato) {
   ].join("\n\n");
 }
 
-async function enviarEmail(denuncia, contato, listaAnexos) {
-  const attachments = await Promise.all(
-    listaAnexos.map(async (filename) => {
-      const safeFilename = path.basename(filename);
-      const filePath = path.join(
-        process.cwd(),
-        "public",
-        "upload",
-        "anexos",
-        safeFilename
-      );
-      const content = await fs.readFile(filePath);
+function prepararAnexos(files) {
+  if (!Array.isArray(files)) return [];
+  return files.map((file) => {
+    if (!Buffer.isBuffer(file.buffer) || typeof file.originalname !== "string") {
+      throw new Error("Invalid uploaded attachment");
+    }
+    const filename = path.basename(file.originalname.replace(/\\/g, "/"))
+      .replace(/[\r\n"]/g, "_")
+      .slice(0, 255) || "anexo";
+    return {
+      filename,
+      content: file.buffer.toString("base64"),
+      disposition: "attachment",
+    };
+  });
+}
 
-      return {
-        filename: safeFilename,
-        content: content.toString("base64"),
-        disposition: "attachment",
-      };
-    })
-  );
-
+async function enviarEmail(denuncia, contato, attachments) {
   const info = await enviarEmailMailerSend({
     to: process.env.RECEBEEMAIL,
     cc: attachments.length ? process.env.EMAIL_COPIA : undefined,
